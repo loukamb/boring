@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+h1 {
+  @apply text-2xl font-bold mb-2 mt-8;
+}
+
+h2 {
+  @apply text-xl font-semibold mb-2 mt-4;
+}
+
+p {
+  @apply text-justify mb-2;
+}
+
+pre {
+  @apply p-4 max-h-[20rem] overflow-y-scroll;
+}
