@@ -1,0 +1,17 @@
+---
+import { Code } from "astro:components"
+
+import Layout from "../components/Layout.astro"
+import Card from "../components/Card.astro"
+
+import LicenseText from "../../../LICENSE?raw"
+---
+
+<Layout title="License">
+  <section>
+    <h1>License</h1>
+    <Card>
+      <pre>{LicenseText}</pre>
+    </Card>
+  </section>
+</Layout>

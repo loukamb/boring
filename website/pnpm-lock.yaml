@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@fontsource-variable/gelasio':
+        specifier: ^5.2.8
+        version: 5.2.8
       '@tailwindcss/vite':
         specifier: ^4.1.18
         version: 4.1.18(vite@6.4.1(jiti@2.6.1)(lightningcss@1.30.2))
@@ -216,6 +219,9 @@ packages:
     engines: {node: '>=18'}
     cpu: [x64]
     os: [win32]
+
+  '@fontsource-variable/gelasio@5.2.8':
+    resolution: {integrity: sha512-6zg3EzGfAZD4juFe8o+n1NRPikismL5bnNCpTJKG4OFExn7UW+5CbMpcS/SnhH1UE0kRCLlnh7CWe3PsZkHDsQ==}
 
   '@img/colour@1.0.0':
     resolution: {integrity: sha512-A5P/LfWGFSl6nsckYtjw9da+19jB8hkJ6ACTGcDfEJ0aE+l2n2El7dsVM7UVHZQ9s2lmYMWlrS21YLy2IR1LUw==}
@@ -1824,6 +1830,8 @@ snapshots:
 
   '@esbuild/win32-x64@0.25.12':
     optional: true
+
+  '@fontsource-variable/gelasio@5.2.8': {}
 
   '@img/colour@1.0.0':
     optional: true

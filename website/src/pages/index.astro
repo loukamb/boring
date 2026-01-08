@@ -8,29 +8,28 @@ import defaultConfig from "../../../default.lua?raw"
 ---
 
 <Layout title="Home">
-  <Card>
-    <i>boring</i> is a minimalist, non-monolithic Wayland compositor built on
-    <a href="https://gitlab.freedesktop.org/wlroots/wlroots">wlroots</a> that is designed
-    to be hackable and extensible, reminiscent of <code>dwm</code> and <code
-      >dwl</code
-    >. Functionality is provided through plugins; we give you the tools and
-    leave you to play.
-  </Card>
   <section>
     <h1>Overview</h1>
     <p>
-      Unlike most compositors, <i>boring</i> implements only the bare necessities
-      of a compositor. Window management (<i>like tiling and stacking layouts</i
-      >), decorations (<i>like borders and shadows</i>), and desktop components
-      (<i>like wallpapers</i>) are provided through <i>plugins</i> loadable at runtime
-      instead of the compositor itself.
+      <i>boring</i> is a minimalist, non-monolithic Wayland compositor built on
+      <a href="https://gitlab.freedesktop.org/wlroots/wlroots">wlroots</a> that is
+      designed to be hackable and extensible. Functionality is provided through plugins;
+      we give you the tools and leave you to play.
     </p>
     <p>
-      This doesn't mean that <i>boring</i> is featureless or incomplete, however.
-      An extensive collection of default plugins is available to provide you with
-      most of the functionality you should need if you are not technologically inclined.
-      Unlike many other minimal compositors, we also have a configuration file system
-      to easily tweak the compositor and its plugins to your liking.
+      Unlike most compositors, <i>boring</i> implements only the bare necessities
+      of a compositor. This is what is meant by <i>non-monolithic</i>. Window
+      management, decorations, and desktop components are provided through
+      plugins loadable at runtime instead of the compositor itself.
+    </p>
+    <p>
+      This doesn't mean that <i>boring</i> is featureless or incomplete. An <a
+        href="https://github.com/borefest/boring/tree/trunk/plugins"
+        >extensive collection of default plugins</a
+      > is available to provide you with most of the functionality you should need.
+      However, if you are not satisfied with how the default plugins work, you can
+      very easily modify them or create your own altogether, a luxury you rarely get
+      with other compositors.
     </p>
   </section>
   <section>
@@ -39,26 +38,15 @@ import defaultConfig from "../../../default.lua?raw"
       <i>boring</i> is written in Lua. It specifically makes use of <a
         href="https://luajit.org/luajit.html">LuaJIT</a
       > for its performance and its binding capabilities. No native code is used at
-      any point, other than in the form of the libraries the compositor depends on,
-      such as
-      <a href="https://gitlab.freedesktop.org/wlroots/wlroots">wlroots</a>.
-      Plugins and configuration files are also written in Lua; they have access
-      to the whole of the compositor's API, so plugins shouldn't be too limited.
+      any point, other than in the form of the libraries the compositor depends on.
+      Plugins and configuration files are also written in Lua; they have access to
+      the whole of the compositor's API, so plugins shouldn't be too limited.
     </p>
     <p>
-      Most Wayland protocols are supported. We make use of wlroots wherever
-      possible, but protocols unsupported by wlroots will be provided by the
-      compositor itself. You can list which protocols we report for by invoking
-      the compositor with the <code>--protocols</code> flag.
-    </p>
-    <h2>Uplifting</h2>
-    <p>
-      There is a perpetual uplift effort to reimplement core Wayland protocols
-      directly in the compositor to reduce our dependency on wlroots. This is
-      not a criticism of wlroots (it is an <i>excellent</i> library), but rather a
-      desire for greater control over the implementation of the protocols we use and
-      hopefully, one day, the elimination of all libraries not written in Lua. Any
-      contributions to this effort are welcome.
+      We try to support as many Wayland protocols as possible. We make use of
+      wlroots to help us, but protocols unsupported by wlroots will be provided
+      by the compositor itself. You can list which protocols we report for by
+      invoking the compositor with the <code>--protocols</code> flag.
     </p>
   </section>
   <section>
@@ -77,6 +65,6 @@ import defaultConfig from "../../../default.lua?raw"
       file is missing, the default configuration below will be used.
     </p>
     <h2>Default configuration</h2>
-    <Code code={defaultConfig} lang="lua" theme="gruvbox-light-soft" />
+    <Code code={defaultConfig} lang="lua" theme="github-light-high-contrast" />
   </section>
 </Layout>

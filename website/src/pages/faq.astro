@@ -1,0 +1,75 @@
+---
+import { Code } from "astro:components"
+import Layout from "../components/Layout.astro"
+
+const code = `
+plugin("@boring/blurs"):mount({
+  radius = 16,
+})
+
+plugin("@boring/shadows"):mount({
+  radius = 4,
+  color = "#000000",
+})
+
+plugin("@boring/animations"):mount({
+  window = {
+    -- Animation syntax is roughly similar to CSS
+    -- Window dimensions and positions
+    open = "100ms ease-out",
+    close = "100ms ease-out",
+    move = "100ms ease-out",
+    resize = "100ms ease-out",
+
+    -- Border color changes
+    border_color = "100ms ease-out",
+
+    -- You can also define bezier curves with cubic-bezier(x1, y1, x2, y2)
+    -- open = "100ms cubic-bezier(0.4, 0, 0.2, 1)",
+  }
+})
+`
+---
+
+<Layout title="Questions & Answers">
+  <section>
+    <h1>Questions & Answers</h1>
+    <p>
+      <h2>Why is it called <i>boring</i>?</h2>
+      <p>
+        Because it is. Boring software is good software. Pursuing an
+        ever-increasing scope of features doesn't necessarily make software
+        better.
+      </p>
+      <h2>Is <i>boring</i> tiling, stacking, or floating?</h2>
+      <p>
+        The window management strategy is up to you. You can make your own with
+        a plugin, and it isn't terribly complicated. However, for the lazy in
+        you, we maintain three official plugins for window management:
+      </p>
+      <ul>
+        <li>
+          <code>layout-stacking</code>, which provides a traditional desktop
+          layout
+        </li>
+        <li>
+          <code>layout-tiling</code>, which is inspired by Sway's n-ary trees
+        </li>
+        <li>
+          <code>layout-kiosk</code>, which displays a single, full-screen window
+        </li>
+      </ul>
+    </p>
+    <h2>How much eye-candy is there?</h2>
+    <p>
+      By default, <i>boring</i> has very little eye-candy. However, its renderer is
+      based on GLES2, which allows for much of the effects Wayland users have come
+      to expect from their compositors, such as blurs, shadows, and animations. We
+      have reference implementations for each of these in the
+      <code>blurs</code>, <code>shadows</code>, and <code>animations</code> official
+      plugins, which can be enabled by appending the following to your configuration
+      file:
+    </p>
+    <Code code={code.trim()} lang="lua" theme="github-light-high-contrast" />
+  </section>
+</Layout>

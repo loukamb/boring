@@ -1,8 +1,10 @@
 ---
 import "../styles/global.css"
+import "@fontsource-variable/gelasio"
+import "@fontsource-variable/gelasio/wght-italic.css"
 import { Image } from "astro:assets"
 
-import Logo from "../../public/favicon.png"
+import Logo from "../../public/mallards.png"
 ---
 
 <html lang="en">
@@ -14,13 +16,16 @@ import Logo from "../../public/favicon.png"
   </head>
   <body>
     <header>
-      <a href="/">
-        <Image src={Logo} alt="" width={64} height={64} />
-      </a>
       <nav>
+        <a href="/">boring</a>
         <a href="/">home</a>
-        <a href="/about">about</a>
+        <a href="/faq">faq</a>
+        <a href="/license">license</a>
+        <a href="https://github.com/borefest/boring" target="_blank"
+          >source code</a
+        >
       </nav>
+      <Image src={Logo} alt="" height={128} class="mallards" />
     </header>
     <main>
       <slot />
@@ -35,16 +40,24 @@ import Logo from "../../public/favicon.png"
     @apply flex items-end py-4;
 
     nav {
-      @apply ml-auto;
+      @apply space-x-2;
+
+      a {
+        @apply hover:bg-sky-200 first:text-2xl first:italic first:font-bold;
+      }
+    }
+
+    .mallards {
+      @apply block ml-auto translate-x-5;
     }
   }
 
   html {
-    @apply bg-amber-100 text-amber-950 px-4;
+    @apply bg-sky-100 text-sky-950 px-4 font-serif;
   }
 
   body {
-    @apply container mx-auto;
+    @apply container mx-auto pb-16;
   }
 
   main {

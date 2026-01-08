@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+@theme {
+  --font-serif: Georgia, "Gelasio Variable", serif;
+}
+
 h1 {
   @apply text-2xl font-bold mb-2 mt-8;
 }
@@ -14,4 +18,12 @@ p {
 
 pre {
   @apply p-4 max-h-[20rem] overflow-y-scroll;
+}
+
+code {
+  @apply text-sm;
+}
+
+ul {
+  @apply list-disc list-inside ml-4 space-y-1;
 }
