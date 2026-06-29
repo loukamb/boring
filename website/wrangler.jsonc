@@ -1,25 +1,21 @@
 {
 	"$schema": "./node_modules/wrangler/config-schema.json",
-	"compatibility_date": "2026-06-29",
-	"compatibility_flags": ["global_fetch_strictly_public"],
 	"name": "website",
-	"main": "@astrojs/cloudflare/entrypoints/server",
+	"compatibility_date": "2026-06-29",
+
+	// Pure static site: the Astro build (output: 'static') is served directly
+	// from ./dist as assets — no Worker script, no adapter, no KV/Images bindings.
 	"assets": {
-		"directory": "./dist",
-		"binding": "ASSETS"
-	},
-	"observability": {
-		"enabled": true
+		"directory": "./dist"
 	},
 
-	// boringwm.org is the sole custom route; the zone already exists in the
-	// Cloudflare account, so custom_domain binds the apex straight to this Worker.
+	// boringwm.org is the sole custom route; the zone already exists in Cloudflare.
 	"routes": [
 		{ "pattern": "boringwm.org", "custom_domain": true }
 	],
 
-	// Disable the auto-assigned *.workers.dev (a.k.a. pages.dev) URL and the
-	// per-deployment preview URLs, so boringwm.org is the only way to reach the site.
+	// Disable the auto-assigned *.workers.dev (a.k.a. pages.dev) URL and
+	// per-deployment preview URLs, so boringwm.org is the only entry point.
 	"workers_dev": false,
 	"preview_urls": false
 }
