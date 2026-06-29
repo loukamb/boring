@@ -7,6 +7,9 @@ This is the monorepository for the boring Wayland compositor. As the name implie
 
 ## Overview
 
+>[!WARNING]
+>This is an experiment in developing a LuaJIT-based Wayland compositor. It isn't ready for serious desktop usage. I'm not currently working on it (as of June 28, 2026) and there's a lot of clean-up that must be done before feature development is continued.
+
 `boring` is a minimalist, non-monolithic Wayland compositor built on [wlroots](https://gitlab.freedesktop.org/wlroots/wlroots/) that is designed to be hackable and extensible, reminiscent of [dwm](https://git.suckless.org/dwm/) and [dwl](https://codeberg.org/dwl/dwl). Functionality is provided through plugins; we give you the tools and leave you to play.
 
 A set of default plugins are included that provides basic window management and Wayland functionality for those that don't want to spend too much time writing their own:
