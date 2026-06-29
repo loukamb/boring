@@ -1,0 +1,21 @@
+{
+  // Cloudflare Workers static-assets deployment for the boring website.
+  // The Astro site is built with output: 'static', so ./dist is served
+  // directly as static assets — no SSR adapter or Worker script needed.
+  "name": "boring",
+  "compatibility_date": "2026-06-28",
+  "assets": {
+    "directory": "./dist"
+  },
+
+  // boringwm.org is the SOLE custom route. The zone already exists in the
+  // Cloudflare account, so custom_domain binds the apex straight to this Worker.
+  "routes": [
+    { "pattern": "boringwm.org", "custom_domain": true }
+  ],
+
+  // Disable the auto-assigned *.workers.dev (a.k.a. pages.dev) URL and the
+  // per-deployment preview URLs, so boringwm.org is the only way to reach the site.
+  "workers_dev": false,
+  "preview_urls": false
+}
