@@ -36,9 +36,7 @@ local layout_service = {
 --   :update_resize(monitor_state, cursor_x, cursor_y) - Update during resize
 --   :end_resize(monitor_state) - End resize
 --
--- Optional methods (for advanced layouts):
---   :pan(monitor_state, dx, dy) - Pan the viewport
---   :zoom(monitor_state, delta, center_x, center_y) - Zoom around point
+-- Optional methods:
 --   :enter_fullscreen(monitor_state, surface) - Enter fullscreen mode
 --   :exit_fullscreen(monitor_state) - Exit fullscreen mode
 
@@ -51,11 +49,6 @@ local layout_service = {
 --     layout_name = "stacking",
 --     layout = layout_implementation reference,
 --     config = { cell = 16, gap = 4, ... },
---     viewport = {
---         offset_x = 0,
---         offset_y = 0,
---         zoom = 1.0,
---     },
 --     windows = { surface1, surface2, ... },
 --     fullscreen_surface = nil,
 --     -- Layout-specific state stored here by implementation
@@ -123,11 +116,6 @@ function layout_service:create_monitor_state(output, config)
             cell = config.cell or 16,
             gap = config.gap or 4,
             gaps = config.gaps or { inner = 4, outer = 4, smart = true },
-        },
-        viewport = {
-            offset_x = 0,
-            offset_y = 0,
-            zoom = 1.0,
         },
         windows = {},
         fullscreen_surface = nil,
@@ -228,6 +216,26 @@ function layout_service:on_window_resize(surface, width, height)
     end
 end
 
+function layout_service:split_focused(layout)
+    local surface_service = require("compositor.services.surface")
+    local surface = surface_service:get_focused_window()
+    local monitor_state = surface and surface._monitor_state or self:get_primary_monitor_state()
+    if not monitor_state or not monitor_state.layout then
+        return false
+    end
+
+    if monitor_state.layout.split then
+        return monitor_state.layout:split(monitor_state, surface, layout)
+    end
+
+    local method = layout == "vertical" and monitor_state.layout.split_vertical
+        or monitor_state.layout.split_horizontal
+    if method then
+        return method(monitor_state.layout, monitor_state, surface)
+    end
+    return false
+end
+
 function layout_service:position_window(surface)
     local monitor_state = surface._monitor_state
     if not monitor_state then return end
@@ -306,34 +314,6 @@ function layout_service:end_resize(surface)
     end
 end
 
---------------------------------------------------------------------------------
--- Viewport/Zoom Delegation (Optional layout features)
---------------------------------------------------------------------------------
-
-function layout_service:pan(monitor_state, dx, dy)
-    if not monitor_state then return end
-
-    if monitor_state.layout and monitor_state.layout.pan then
-        monitor_state.layout:pan(monitor_state, dx, dy)
-    end
-end
-
-function layout_service:zoom(monitor_state, delta, center_x, center_y)
-    if not monitor_state then return end
-
-    if monitor_state.layout and monitor_state.layout.zoom then
-        monitor_state.layout:zoom(monitor_state, delta, center_x, center_y)
-    end
-end
-
-function layout_service:get_viewport(monitor_state)
-    if not monitor_state then
-        return { offset_x = 0, offset_y = 0, zoom = 1.0 }
-    end
-    return monitor_state.viewport
-end
-
---------------------------------------------------------------------------------
 -- Fullscreen Delegation
 --------------------------------------------------------------------------------
 

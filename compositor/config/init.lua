@@ -1,6 +1,5 @@
 -- compositor/config/init.lua
 -- Main runtime module for compositor configuration
--- This is the refactored version of shared/runtime.lua
 
 local ConfigObject = require("compositor.config.object")
 local Registry = require("compositor.config.registry")

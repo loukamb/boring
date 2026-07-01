@@ -8,7 +8,7 @@
 | [x]  | `wl_shm_pool`                       | Part of wl_shm                              | Already working                      |
 | [x]  | `wp_viewporter`                     | `wlr_viewporter_create`                     | Simple one-liner                     |
 | [x]  | `wp_viewport`                       | Created by viewporter                       | Auto-created per surface             |
-| [x]  | `wp_single_pixel_buffer_manager_v1` | `wlr_single_pixel_buffer_manager_v1_create` | One-liner in core                    |
+| [x]  | `wp_single_pixel_buffer_manager_v1` | `wlr_single_pixel_buffer_manager_v1_create` | Created in surface service           |
 | [x]  | `wp_cursor_shape_manager_v1`        | `wlr_cursor_shape_manager_v1_create`        | One-liner in input                   |
 | [x]  | `wp_cursor_shape_device_v1`         | Created by manager                          | Auto-created                         |
 | [x]  | `zxdg_output_manager_v1`            | `wlr_xdg_output_manager_v1_create`          | One-liner, useful for multi-monitor  |
@@ -20,7 +20,7 @@
 | :--: | ------------------------------------------- | ---------------------------------------- | ----------------- | ------------------------------------------- |
 | [x]  | `xdg_activation_v1`                         | `wlr_xdg_activation_v1_create`           | surface.lua       | Window focus stealing prevention            |
 | [x]  | `xdg_activation_token_v1`                   | Created by manager                       | surface.lua       |                                             |
-| [x]  | `zwlr_screencopy_manager_v1`                | `wlr_screencopy_manager_v1_create`       | New or render.lua | Screenshot support for external tools       |
+| [x]  | `zwlr_screencopy_manager_v1`                | `wlr_screencopy_manager_v1_create`       | output.lua        | Screenshot support for external tools       |
 | [x]  | `zwlr_screencopy_frame_v1`                  | Created by manager                       |                   |                                             |
 | [x]  | `zwlr_gamma_control_manager_v1`             | `wlr_gamma_control_manager_v1_create`    | output.lua        | Night light support                         |
 | [x]  | `zwlr_gamma_control_v1`                     | Created by manager                       |                   |                                             |
@@ -33,7 +33,7 @@
 | [x]  | `zwp_relative_pointer_v1`                   | Created by manager                       |                   |                                             |
 | [x]  | `zxdg_decoration_manager_v1`                | `wlr_xdg_decoration_manager_v1_create`   | surface.lua       | CSD/SSD negotiation                         |
 | [x]  | `zxdg_toplevel_decoration_v1`               | Created by manager                       |                   |                                             |
-| [x]  | `xwayland_shell_v1` / `xwayland_surface_v1` | Already in xwayland.lua                  | xwayland.lua      | **Already done!** Just registration pending |
+| [x]  | `xwayland_shell_v1` / `xwayland_surface_v1` | Registered by xwayland plugin            | xwayland.lua      | Enabled when the plugin mounts              |
 
 ## ⚙️ Medium (Minor service additions)
 

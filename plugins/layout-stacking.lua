@@ -185,15 +185,6 @@ function stacking:end_resize(monitor_state)
     st.mode = "none"
 end
 
---------------------------------------------------------------------------------
--- Viewport Operations (No-op for stacking)
---------------------------------------------------------------------------------
-
-function stacking:pan(monitor_state, dx, dy) end
-
-function stacking:zoom(monitor_state, delta, center_x, center_y) end
-
---------------------------------------------------------------------------------
 -- Fullscreen
 --------------------------------------------------------------------------------
 
