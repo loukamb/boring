@@ -108,7 +108,22 @@ local function create_surface_for_output(output_data)
         width = 0,
         height = 0,
         configured = false,
+        buffer = nil,
+        buffer_data = nil,
+        buffer_size = nil,
     }
+
+    local function cleanup_buffer()
+        if surf_data.buffer then
+            wl.buffer_destroy(surf_data.buffer)
+            surf_data.buffer = nil
+        end
+        if surf_data.buffer_data and surf_data.buffer_size then
+            ffi.C.munmap(surf_data.buffer_data, surf_data.buffer_size)
+            surf_data.buffer_data = nil
+            surf_data.buffer_size = nil
+        end
+    end
 
     local configure_cb = wl.persistent_callback(
         "void(*)(void*, struct zwlr_layer_surface_v1*, uint32_t, uint32_t, uint32_t)",
@@ -118,9 +133,14 @@ local function create_surface_for_output(output_data)
             surf_data.configured = true
             wl.layer_surface_ack_configure(ls, serial)
 
+            cleanup_buffer()
 
-            local buffer, buf_data = wl.create_shm_buffer(state.shm, width, height, wl.WL_SHM_FORMAT_ARGB8888)
+            local buffer, buf_data, buf_size = wl.create_shm_buffer(state.shm, width, height, wl.WL_SHM_FORMAT_ARGB8888)
             if buffer and buf_data then
+                surf_data.buffer = buffer
+                surf_data.buffer_data = buf_data
+                surf_data.buffer_size = buf_size
+
                 if state.loaded_image then
                     fill_buffer_image(buf_data, width, height, state.loaded_image, state.config.scale)
                 else
@@ -143,6 +163,7 @@ local function create_surface_for_output(output_data)
     local closed_cb = wl.persistent_callback(
         "void(*)(void*, struct zwlr_layer_surface_v1*)",
         function(data, ls)
+            cleanup_buffer()
             state.running = false
         end
     )
@@ -265,6 +286,14 @@ local function main(args)
 
     if state.loaded_image then
         state.loaded_image:free()
+    end
+    for _, surf_data in ipairs(state.surfaces) do
+        if surf_data.buffer then
+            wl.buffer_destroy(surf_data.buffer)
+        end
+        if surf_data.buffer_data and surf_data.buffer_size then
+            ffi.C.munmap(surf_data.buffer_data, surf_data.buffer_size)
+        end
     end
     wl.display_disconnect(state.display)
 
