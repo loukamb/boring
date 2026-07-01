@@ -9,8 +9,10 @@ local log = require("shared.log")
 local wl = require("shared.wayland.server")
 local ffi = wl._ffi
 local bit = wl.bit
+local output_service = require("compositor.services.output")
 
 local tiling = {}
+local clip_box = ffi.new("struct wlr_box")
 
 --------------------------------------------------------------------------------
 -- Container Data Structures (Sway N-ary tree)
@@ -87,6 +89,29 @@ local function find_in_children(children, surface)
         if found then return found end
     end
     return nil
+end
+
+local function container_in_tree(container, target)
+    if not container then return false end
+    if container == target then return true end
+    if container.type == "split" then
+        for _, child in ipairs(container.children) do
+            if container_in_tree(child, target) then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function split_in_tiling_state(tiling_state, split)
+    if not split then return false end
+    for _, child in ipairs(tiling_state.children) do
+        if container_in_tree(child, split) then
+            return true
+        end
+    end
+    return false
 end
 
 -- Count all leaf containers (windows) in the tree
@@ -443,12 +468,11 @@ arrange_container = function(container, inner_gap)
             -- Clip surface to prevent overflow before client redraws
             -- This ensures the window doesn't visually overflow its bounds
             -- while waiting for the client to acknowledge the resize
-            local clip_box = ffi.new("struct wlr_box", {
-                0, 0, container.width, container.height
-            })
-            pcall(function()
-                wl.roots.scene_subsurface_tree_set_clip(surface.scene_tree.node, clip_box)
-            end)
+            clip_box.x = 0
+            clip_box.y = 0
+            clip_box.width = container.width
+            clip_box.height = container.height
+            pcall(wl.roots.scene_subsurface_tree_set_clip, surface.scene_tree.node, clip_box)
         end
         return
     end
@@ -470,24 +494,8 @@ end
 
 -- Get logical output dimensions (accounting for scale/transform)
 local function get_output_dimensions(output)
-    local output_service = require("compositor.services.output")
-    local box = ffi.new("struct wlr_box")
-    wl.roots.output_layout_get_box(output_service:get_output_layout(), output.wlr_output, box)
-
-    -- Get raw dimensions and scale for fallback
-    local raw_w = output.wlr_output.width
-    local raw_h = output.wlr_output.height
-    local scale = output.wlr_output.scale
-    if scale <= 0 then scale = 1 end
-
-    -- If box dimensions are invalid, calculate from raw dimensions / scale
-    if box.width <= 0 or box.height <= 0 then
-        log.warn("Invalid output box, falling back to raw/scale: %dx%d / %f",
-            raw_w, raw_h, scale)
-        return math.floor(raw_w / scale), math.floor(raw_h / scale)
-    end
-
-    return box.width, box.height
+    local width, height = output_service:get_output_dimensions(output.wlr_output)
+    return width or output.wlr_output.width, height or output.wlr_output.height
 end
 
 -- Arrange the entire workspace
@@ -555,6 +563,19 @@ local function add_window(tiling_state, surface, focused_surface)
         return new_container
     end
 
+    local active_split = tiling_state.active_split
+    if active_split and active_split.type == "split" and split_in_tiling_state(tiling_state, active_split) then
+        local idx = find_index(active_split.children, focused_container)
+        if idx then
+            table.insert(active_split.children, idx + 1, new_container)
+        else
+            table.insert(active_split.children, new_container)
+        end
+        new_container.parent = active_split
+        return new_container
+    end
+    tiling_state.active_split = nil
+
     -- Add as sibling to the focused container
     local parent = focused_container.parent
     if parent then
@@ -578,6 +599,50 @@ local function add_window(tiling_state, surface, focused_surface)
     end
 
     return new_container
+end
+
+local function create_split_around_container(tiling_state, container, layout)
+    if not container then
+        tiling_state.layout = layout
+        tiling_state.active_split = nil
+        return true
+    end
+
+    local parent = container.parent
+    if parent and parent.layout == layout then
+        tiling_state.active_split = parent
+        return true
+    end
+
+    local split = create_split(layout, { container })
+    split.width_fraction = container.width_fraction
+    split.height_fraction = container.height_fraction
+    split.x = container.x
+    split.y = container.y
+    split.width = container.width
+    split.height = container.height
+    container.width_fraction = 1
+    container.height_fraction = 1
+    container.parent = split
+
+    if parent then
+        local idx = find_index(parent.children, container)
+        if not idx then
+            return false
+        end
+        parent.children[idx] = split
+        split.parent = parent
+    else
+        local idx = find_index(tiling_state.children, container)
+        if not idx then
+            return false
+        end
+        tiling_state.children[idx] = split
+        split.parent = nil
+    end
+
+    tiling_state.active_split = split
+    return true
 end
 
 --------------------------------------------------------------------------------
@@ -724,6 +789,30 @@ end
 function tiling:on_window_resize(monitor_state, surface, width, height)
     -- In tiling, we control window sizes, so just re-arrange
     arrange_workspace(monitor_state)
+end
+
+function tiling:split(monitor_state, surface, layout)
+    if layout ~= "horizontal" and layout ~= "vertical" then
+        return false
+    end
+
+    local ts = monitor_state.tiling
+    if not ts then return false end
+
+    local container = surface and find_in_children(ts.children, surface) or nil
+    local ok = create_split_around_container(ts, container, layout)
+    if ok then
+        arrange_workspace(monitor_state)
+    end
+    return ok
+end
+
+function tiling:split_horizontal(monitor_state, surface)
+    return self:split(monitor_state, surface, "horizontal")
+end
+
+function tiling:split_vertical(monitor_state, surface)
+    return self:split(monitor_state, surface, "vertical")
 end
 
 function tiling:position_window(monitor_state, surface)
@@ -1021,19 +1110,6 @@ function tiling:end_resize(monitor_state)
     ts.edge_y = 0
 end
 
---------------------------------------------------------------------------------
--- Viewport Operations (No-op for tiling)
---------------------------------------------------------------------------------
-
-function tiling:pan(monitor_state, dx, dy)
-    -- Tiling layout doesn't support panning
-end
-
-function tiling:zoom(monitor_state, delta, center_x, center_y)
-    -- Tiling layout doesn't support zooming
-end
-
---------------------------------------------------------------------------------
 -- Fullscreen
 --------------------------------------------------------------------------------
 
@@ -1063,6 +1139,7 @@ function tiling:enter_fullscreen(monitor_state, surface)
     end
     wl.roots.scene_node_set_position(surface.scene_tree.node, node_x, node_y)
     surface:set_size(width, height)
+    pcall(wl.roots.scene_subsurface_tree_set_clip, surface.scene_tree.node, nil)
 
     -- Raise to top
     wl.roots.scene_node_raise_to_top(surface.scene_tree.node)
@@ -1092,6 +1169,16 @@ end
 
 local plugin = {
     name = "layout-tiling",
+}
+
+plugin._private = {
+    layout = tiling,
+    create_leaf = create_leaf,
+    create_split = create_split,
+    add_window = add_window,
+    remove_window = remove_window,
+    find_in_children = find_in_children,
+    find_leaf_at = find_leaf_at,
 }
 
 function plugin:mount(config)
