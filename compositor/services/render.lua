@@ -17,13 +17,13 @@ local render_service = {
 --------------------------------------------------------------------------------
 
 function render_service:render_output(output)
-    if not output or not output.wlr_output then return end
+    if not output or not output.raw then return end
 
     local surface_service = require("compositor.services.surface")
     local scene = surface_service:get_scene()
     if not scene then return end
 
-    local scene_output = wl.roots.scene_get_scene_output(scene, output.wlr_output)
+    local scene_output = wl.roots.scene_get_scene_output(scene, output:raw())
     if scene_output == nil or scene_output == ffi.NULL then return end
 
     if not wl.roots.scene_output_commit(scene_output, nil) then

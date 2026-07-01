@@ -7,6 +7,7 @@ local proto = require("shared.wayland.registry")
 local state = require("compositor.state")
 local ffi = wl._ffi
 local bit = wl.bit
+local Scope = require("shared.scope")
 
 local core_service = require("compositor.services.core")
 local output_service = require("compositor.services.output")
@@ -189,9 +190,6 @@ local input_service = {
     -- Listeners
     listeners = {},
 
-    -- Local registry for listener data
-    registry = wl.new_registry(),
-
     -- State
     initialized = false,
 }
@@ -210,14 +208,9 @@ local function find_mouse_shortcut(modifiers, event_type, button)
     return nil, nil
 end
 
--- Helper to set listener data
-local function set_listener_data(listener, data)
-    input_service.registry:set(listener, data)
-end
-
 -- Helper to get listener data
 local function get_listener_data(listener)
-    return input_service.registry:get(listener)
+    return wl.Listener.get_data(listener)
 end
 
 local function update_seat_capabilities()
@@ -230,14 +223,6 @@ local function update_seat_capabilities()
         caps = bit.bor(caps, wl.WL_SEAT_CAPABILITY_KEYBOARD)
     end
     wl.roots.seat_set_capabilities(input_service.seat, caps)
-end
-
-local function destroy_keyboard_listener(listener)
-    if not listener then
-        return
-    end
-    input_service.registry:remove(listener)
-    wl.destroy_listener(listener)
 end
 
 --------------------------------------------------------------------------------
@@ -309,7 +294,7 @@ local function keyboard_handle_key(listener, data)
     local keyboard = get_listener_data(listener)
     if not keyboard then return end
 
-    local event = ffi.cast("struct wlr_keyboard_key_event*", data)
+    local event = wl.event(data, "struct wlr_keyboard_key_event*")
     local seat = input_service.seat
 
     local keycode = event.keycode + 8
@@ -356,9 +341,7 @@ local function keyboard_handle_destroy(listener, data)
         end
     end
 
-    destroy_keyboard_listener(keyboard.modifiers_listener)
-    destroy_keyboard_listener(keyboard.key_listener)
-    destroy_keyboard_listener(keyboard.destroy_listener)
+    keyboard.scope:close()
     update_seat_capabilities()
 end
 
@@ -373,6 +356,7 @@ local function server_new_keyboard(device)
         device_name = device_name,
         shortcuts = {},
         mouse_shortcuts = {},
+        scope = Scope.new("keyboard:" .. device_name),
     }
 
     -- Separate keyboard and mouse shortcuts
@@ -442,17 +426,9 @@ local function server_new_keyboard(device)
     end
     wl.roots.keyboard_set_repeat_info(wlr_keyboard, repeat_rate, repeat_delay)
 
-    keyboard.modifiers_listener = wl.create_listener(keyboard_handle_modifiers)
-    set_listener_data(keyboard.modifiers_listener, keyboard)
-    wl.signal_add(wlr_keyboard.events.modifiers, keyboard.modifiers_listener)
-
-    keyboard.key_listener = wl.create_listener(keyboard_handle_key)
-    set_listener_data(keyboard.key_listener, keyboard)
-    wl.signal_add(wlr_keyboard.events.key, keyboard.key_listener)
-
-    keyboard.destroy_listener = wl.create_listener(keyboard_handle_destroy)
-    set_listener_data(keyboard.destroy_listener, keyboard)
-    wl.signal_add(device.events.destroy, keyboard.destroy_listener)
+    keyboard.scope:listen(wlr_keyboard.events.modifiers, keyboard_handle_modifiers, keyboard)
+    keyboard.scope:listen(wlr_keyboard.events.key, keyboard_handle_key, keyboard)
+    keyboard.scope:listen(device.events.destroy, keyboard_handle_destroy, keyboard)
 
     wl.roots.seat_set_keyboard(input_service.seat, wlr_keyboard)
     table.insert(input_service.keyboards, keyboard)
@@ -514,7 +490,7 @@ end
 
 -- Handle new input device
 local function server_new_input(listener, data)
-    local device = ffi.cast("struct wlr_input_device*", data)
+    local device = wl.event(data, "struct wlr_input_device*")
 
     if device.type == wl.WLR_INPUT_DEVICE_KEYBOARD then
         server_new_keyboard(device)
@@ -555,14 +531,14 @@ local function process_cursor_move()
     local layout_service = require("compositor.services.layout")
 
     -- Try layout service first
-    if surface._monitor_state then
+    if surface:monitor_state() then
         layout_service:update_move(surface, input_service.cursor.x, input_service.cursor.y)
         return
     end
 
     -- Fall back to direct scene manipulation
-    if not surface.scene_tree then return end
-    wl.roots.scene_node_set_position(surface.scene_tree.node,
+    if not surface.scene_node or not surface:scene_node() then return end
+    surface:set_position(
         input_service.cursor.x - input_service.grab_x,
         input_service.cursor.y - input_service.grab_y)
 end
@@ -575,13 +551,13 @@ local function process_cursor_resize()
     local layout_service = require("compositor.services.layout")
 
     -- Try layout service first
-    if surface._monitor_state then
+    if surface:monitor_state() then
         layout_service:update_resize(surface, input_service.cursor.x, input_service.cursor.y)
         return
     end
 
     -- Fall back to direct scene manipulation
-    if not surface.scene_tree then return end
+    if not surface.scene_node or not surface:scene_node() then return end
 
     local border_x = input_service.cursor.x - input_service.grab_x
     local border_y = input_service.cursor.y - input_service.grab_y
@@ -606,9 +582,8 @@ local function process_cursor_resize()
         if new_right <= new_left then new_right = new_left + 1 end
     end
 
-    local geo_box = surface.role_obj.base.geometry
-    wl.roots.scene_node_set_position(surface.scene_tree.node,
-        new_left - geo_box.x, new_top - geo_box.y)
+    local geo_box = surface:geometry()
+    surface:set_position(new_left - geo_box.x, new_top - geo_box.y)
 
     local new_width = new_right - new_left
     local new_height = new_bottom - new_top
@@ -643,14 +618,14 @@ end
 
 -- Handle cursor motion
 local function server_cursor_motion(listener, data)
-    local event = ffi.cast("struct wlr_pointer_motion_event*", data)
+    local event = wl.event(data, "struct wlr_pointer_motion_event*")
     wl.roots.cursor_move(input_service.cursor, event.pointer.base, event.delta_x, event.delta_y)
     process_cursor_motion(event.time_msec)
 end
 
 -- Handle absolute cursor motion
 local function server_cursor_motion_absolute(listener, data)
-    local event = ffi.cast("struct wlr_pointer_motion_absolute_event*", data)
+    local event = wl.event(data, "struct wlr_pointer_motion_absolute_event*")
     wl.roots.cursor_warp_absolute(input_service.cursor, event.pointer.base, event.x, event.y)
     process_cursor_motion(event.time_msec)
 end
@@ -684,7 +659,7 @@ end
 
 -- Handle cursor button
 local function server_cursor_button(listener, data)
-    local event = ffi.cast("struct wlr_pointer_button_event*", data)
+    local event = wl.event(data, "struct wlr_pointer_button_event*")
     local cursor_x, cursor_y = input_service.cursor.x, input_service.cursor.y
     local surface, _, _, _ = surface_service:surface_at(cursor_x, cursor_y)
     local layout_service = require("compositor.services.layout")
@@ -745,11 +720,12 @@ local function server_cursor_button(listener, data)
             if surface then
                 -- Calculate resize edges based on cursor position relative to window center
                 local edges = 0
-                if surface.scene_tree then
-                    local geo = surface.role_obj and surface.role_obj.base.geometry
+                if surface.scene_node and surface:scene_node() then
+                    local geo = surface:geometry()
                     if geo then
-                        local win_x = surface.scene_tree.node.x + geo.x
-                        local win_y = surface.scene_tree.node.y + geo.y
+                        local surface_x, surface_y = surface:position()
+                        local win_x = surface_x + geo.x
+                        local win_y = surface_y + geo.y
                         local win_cx = win_x + geo.width / 2
                         local win_cy = win_y + geo.height / 2
 
@@ -797,7 +773,7 @@ end
 
 -- Handle cursor axis (scroll)
 local function server_cursor_axis(listener, data)
-    local event = ffi.cast("struct wlr_pointer_axis_event*", data)
+    local event = wl.event(data, "struct wlr_pointer_axis_event*")
     local modifiers = input_service.current_modifiers
 
     if event.delta == 0 then
@@ -836,7 +812,7 @@ end
 
 -- Handle cursor set request
 local function seat_request_cursor(listener, data)
-    local event = ffi.cast("struct wlr_seat_pointer_request_set_cursor_event*", data)
+    local event = wl.event(data, "struct wlr_seat_pointer_request_set_cursor_event*")
     local focused_client = input_service.seat.pointer_state.focused_client
 
     if focused_client == event.seat_client then
@@ -844,17 +820,9 @@ local function seat_request_cursor(listener, data)
     end
 end
 
--- Handle pointer focus change
-local function seat_pointer_focus_change(listener, data)
-    local event = ffi.cast("struct wlr_seat_pointer_focus_change_event*", data)
-    if event.new_surface == nil or event.new_surface == ffi.NULL then
-        wl.roots.cursor_set_xcursor(input_service.cursor, input_service.cursor_mgr, "default")
-    end
-end
-
 -- Handle selection request
 local function seat_request_set_selection(listener, data)
-    local event = ffi.cast("struct wlr_seat_request_set_selection_event*", data)
+    local event = wl.event(data, "struct wlr_seat_request_set_selection_event*")
     wl.roots.seat_set_selection(input_service.seat, event.source, event.serial)
 end
 
@@ -864,24 +832,26 @@ end
 
 -- Begin interactive move/resize
 function input_service:begin_interactive(surface, mode, edges)
-    if not surface or not surface.scene_tree then return end
+    if not surface or not surface.scene_node or not surface:scene_node() then return end
 
     self.grabbed_surface = surface
 
     if mode == "move" then
         self.cursor_mode = CURSOR_MOVE
-        self.grab_x = self.cursor.x - surface.scene_tree.node.x
-        self.grab_y = self.cursor.y - surface.scene_tree.node.y
+        local x, y = surface:position()
+        self.grab_x = self.cursor.x - x
+        self.grab_y = self.cursor.y - y
     else
         self.cursor_mode = CURSOR_RESIZE
-        local geo_box = surface.role_obj.base.geometry
+        local geo_box = surface:geometry()
+        local x, y = surface:position()
 
-        local border_x = surface.scene_tree.node.x + geo_box.x
+        local border_x = x + geo_box.x
         if bit.band(edges, wl.WLR_EDGE_RIGHT) ~= 0 then
             border_x = border_x + geo_box.width
         end
 
-        local border_y = surface.scene_tree.node.y + geo_box.y
+        local border_y = y + geo_box.y
         if bit.band(edges, wl.WLR_EDGE_BOTTOM) ~= 0 then
             border_y = border_y + geo_box.height
         end
@@ -890,8 +860,8 @@ function input_service:begin_interactive(surface, mode, edges)
         self.grab_y = self.cursor.y - border_y
 
         self.grab_geobox = ffi.new("struct wlr_box")
-        self.grab_geobox.x = geo_box.x + surface.scene_tree.node.x
-        self.grab_geobox.y = geo_box.y + surface.scene_tree.node.y
+        self.grab_geobox.x = geo_box.x + x
+        self.grab_geobox.y = geo_box.y + y
         self.grab_geobox.width = geo_box.width
         self.grab_geobox.height = geo_box.height
 
@@ -956,36 +926,21 @@ function input_service:init()
     end
 
     -- Set up cursor listeners
-    self.listeners.cursor_motion = wl.create_listener(server_cursor_motion)
-    wl.signal_add(self.cursor.events.motion, self.listeners.cursor_motion)
-
-    self.listeners.cursor_motion_absolute = wl.create_listener(server_cursor_motion_absolute)
-    wl.signal_add(self.cursor.events.motion_absolute, self.listeners.cursor_motion_absolute)
-
-    self.listeners.cursor_button = wl.create_listener(server_cursor_button)
-    wl.signal_add(self.cursor.events.button, self.listeners.cursor_button)
-
-    self.listeners.cursor_axis = wl.create_listener(server_cursor_axis)
-    wl.signal_add(self.cursor.events.axis, self.listeners.cursor_axis)
-
-    self.listeners.cursor_frame = wl.create_listener(server_cursor_frame)
-    wl.signal_add(self.cursor.events.frame, self.listeners.cursor_frame)
+    self.scope = Scope.new("input_service")
+    self.listeners.cursor_motion = self.scope:listen(self.cursor.events.motion, server_cursor_motion, self)
+    self.listeners.cursor_motion_absolute = self.scope:listen(self.cursor.events.motion_absolute, server_cursor_motion_absolute, self)
+    self.listeners.cursor_button = self.scope:listen(self.cursor.events.button, server_cursor_button, self)
+    self.listeners.cursor_axis = self.scope:listen(self.cursor.events.axis, server_cursor_axis, self)
+    self.listeners.cursor_frame = self.scope:listen(self.cursor.events.frame, server_cursor_frame, self)
 
     -- Listen for new inputs
-    self.listeners.new_input = wl.create_listener(server_new_input)
-    wl.signal_add(core_service:get_backend().events.new_input, self.listeners.new_input)
+    self.listeners.new_input = self.scope:listen(core_service:get_backend().events.new_input, server_new_input, self)
 
     -- Create seat
     self.seat = wl.roots.seat_create(core_service:get_display(), "seat0")
 
-    self.listeners.request_cursor = wl.create_listener(seat_request_cursor)
-    wl.signal_add(self.seat.events.request_set_cursor, self.listeners.request_cursor)
-
-    self.listeners.pointer_focus_change = wl.create_listener(seat_pointer_focus_change)
-    wl.signal_add(self.seat.pointer_state.events.focus_change, self.listeners.pointer_focus_change)
-
-    self.listeners.request_set_selection = wl.create_listener(seat_request_set_selection)
-    wl.signal_add(self.seat.events.request_set_selection, self.listeners.request_set_selection)
+    self.listeners.request_cursor = self.scope:listen(self.seat.events.request_set_cursor, seat_request_cursor, self)
+    self.listeners.request_set_selection = self.scope:listen(self.seat.events.request_set_selection, seat_request_set_selection, self)
 
     self.initialized = true
 end
@@ -1002,6 +957,18 @@ end
 
 -- Cleanup on shutdown
 function input_service:shutdown()
+    if self.scope then
+        self.scope:close()
+        self.scope = nil
+    end
+
+    for _, keyboard in ipairs(self.keyboards) do
+        if keyboard.scope then
+            keyboard.scope:close()
+        end
+    end
+    self.keyboards = {}
+
     if self.cursor_mgr then
         wl.roots.xcursor_manager_destroy(self.cursor_mgr)
         self.cursor_mgr = nil

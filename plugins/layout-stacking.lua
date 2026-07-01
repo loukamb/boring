@@ -12,6 +12,18 @@ local bit = wl.bit
 
 local stacking = {}
 
+local function has_scene(surface)
+    return surface and surface.scene_node and surface:scene_node() ~= nil
+end
+
+local function surface_position(surface)
+    return surface:position()
+end
+
+local function surface_geometry(surface)
+    return surface:geometry()
+end
+
 function stacking:init(monitor_state)
     monitor_state.stacking = {
         grabbed_surface = nil,
@@ -36,6 +48,9 @@ function stacking:on_window_add(monitor_state, surface)
 end
 
 function stacking:on_window_remove(monitor_state, surface)
+    if not monitor_state.stacking then
+        return
+    end
     if monitor_state.stacking.grabbed_surface == surface then
         monitor_state.stacking.grabbed_surface = nil
         monitor_state.stacking.mode = "none"
@@ -65,15 +80,16 @@ end
 --------------------------------------------------------------------------------
 
 function stacking:begin_move(monitor_state, surface, cursor_x, cursor_y)
-    if not surface or not surface.scene_tree then
+    if not has_scene(surface) then
         return false
     end
 
     local st = monitor_state.stacking
     st.grabbed_surface = surface
     st.mode = "move"
-    st.grab_x = cursor_x - surface.scene_tree.node.x
-    st.grab_y = cursor_y - surface.scene_tree.node.y
+    local x, y = surface_position(surface)
+    st.grab_x = cursor_x - x
+    st.grab_y = cursor_y - y
 
     return true
 end
@@ -85,12 +101,12 @@ function stacking:update_move(monitor_state, cursor_x, cursor_y)
     end
 
     local surface = st.grabbed_surface
-    if not surface.scene_tree then return end
+    if not has_scene(surface) then return end
 
     local new_x = cursor_x - st.grab_x
     local new_y = cursor_y - st.grab_y
 
-    wl.roots.scene_node_set_position(surface.scene_tree.node, new_x, new_y)
+    surface:set_position(new_x, new_y)
 end
 
 function stacking:end_move(monitor_state)
@@ -104,7 +120,7 @@ end
 --------------------------------------------------------------------------------
 
 function stacking:begin_resize(monitor_state, surface, cursor_x, cursor_y, edges)
-    if not surface or not surface.scene_tree or not surface.role_obj then
+    if not has_scene(surface) then
         return false
     end
 
@@ -113,14 +129,15 @@ function stacking:begin_resize(monitor_state, surface, cursor_x, cursor_y, edges
     st.mode = "resize"
     st.resize_edges = edges
 
-    local geo_box = surface.role_obj.base.geometry
+    local geo_box = surface_geometry(surface)
+    local x, y = surface_position(surface)
 
-    local border_x = surface.scene_tree.node.x + geo_box.x
+    local border_x = x + geo_box.x
     if bit.band(edges, wl.WLR_EDGE_RIGHT) ~= 0 then
         border_x = border_x + geo_box.width
     end
 
-    local border_y = surface.scene_tree.node.y + geo_box.y
+    local border_y = y + geo_box.y
     if bit.band(edges, wl.WLR_EDGE_BOTTOM) ~= 0 then
         border_y = border_y + geo_box.height
     end
@@ -129,8 +146,8 @@ function stacking:begin_resize(monitor_state, surface, cursor_x, cursor_y, edges
     st.grab_y = cursor_y - border_y
 
     st.grab_geobox = ffi.new("struct wlr_box")
-    st.grab_geobox.x = geo_box.x + surface.scene_tree.node.x
-    st.grab_geobox.y = geo_box.y + surface.scene_tree.node.y
+    st.grab_geobox.x = geo_box.x + x
+    st.grab_geobox.y = geo_box.y + y
     st.grab_geobox.width = geo_box.width
     st.grab_geobox.height = geo_box.height
 
@@ -144,7 +161,7 @@ function stacking:update_resize(monitor_state, cursor_x, cursor_y)
     end
 
     local surface = st.grabbed_surface
-    if not surface.scene_tree or not surface.role_obj then return end
+    if not has_scene(surface) then return end
 
     local border_x = cursor_x - st.grab_x
     local border_y = cursor_y - st.grab_y
@@ -169,9 +186,8 @@ function stacking:update_resize(monitor_state, cursor_x, cursor_y)
         if new_right <= new_left then new_right = new_left + 1 end
     end
 
-    local geo_box = surface.role_obj.base.geometry
-    wl.roots.scene_node_set_position(surface.scene_tree.node,
-        new_left - geo_box.x, new_top - geo_box.y)
+    local geo_box = surface_geometry(surface)
+    surface:set_position(new_left - geo_box.x, new_top - geo_box.y)
 
     local new_width = new_right - new_left
     local new_height = new_bottom - new_top
@@ -189,7 +205,7 @@ end
 --------------------------------------------------------------------------------
 
 function stacking:enter_fullscreen(monitor_state, surface)
-    if not surface or not surface.scene_tree then
+    if not has_scene(surface) then
         return false
     end
 
@@ -200,16 +216,16 @@ function stacking:enter_fullscreen(monitor_state, surface)
     local surface_service = require("compositor.services.surface")
     local current_width, current_height = surface_service:get_surface_dimensions(surface)
     surface._pre_fullscreen = {
-        x = surface.scene_tree.node.x,
-        y = surface.scene_tree.node.y,
+        x = (select(1, surface_position(surface))),
+        y = (select(2, surface_position(surface))),
         width = current_width,
         height = current_height,
     }
 
     local output_service = require("compositor.services.output")
-    local width, height = output_service:get_output_dimensions(monitor_state.output.wlr_output)
+    local width, height = output_service:get_output_dimensions(monitor_state.output)
 
-    wl.roots.scene_node_set_position(surface.scene_tree.node, 0, 0)
+    surface:set_position(0, 0)
     surface:set_size(width, height)
 
     monitor_state.fullscreen_surface = surface
@@ -222,9 +238,8 @@ function stacking:exit_fullscreen(monitor_state)
         return false
     end
 
-    if surface._pre_fullscreen and surface.scene_tree then
-        wl.roots.scene_node_set_position(surface.scene_tree.node,
-            surface._pre_fullscreen.x, surface._pre_fullscreen.y)
+    if surface._pre_fullscreen and has_scene(surface) then
+        surface:set_position(surface._pre_fullscreen.x, surface._pre_fullscreen.y)
         if surface._pre_fullscreen.width > 0 and surface._pre_fullscreen.height > 0 then
             surface:set_size(surface._pre_fullscreen.width, surface._pre_fullscreen.height)
         end

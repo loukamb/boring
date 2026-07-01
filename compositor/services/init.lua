@@ -5,6 +5,7 @@ local proto               = require("shared.wayland.registry")
 local state               = require("compositor.state")
 local process             = require("compositor.process")
 local color               = require("shared.color")
+local plugin_module       = require("compositor.plugin")
 local core_service        = require("compositor.services.core")
 local output_service      = require("compositor.services.output")
 local layout_service      = require("compositor.services.layout")
@@ -101,10 +102,12 @@ local function shutdown()
         p:stop()
     end
 
-    render_service:shutdown()
-    layout_service:shutdown()
+    plugin_module.unmount_all()
     surface_service:shutdown()
     input_service:shutdown()
+    output_service:shutdown()
+    render_service:shutdown()
+    layout_service:shutdown()
     core_service:shutdown()
 end
 

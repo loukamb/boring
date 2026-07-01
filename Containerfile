@@ -11,6 +11,7 @@ RUN pacman -Syu --noconfirm --needed \
     wayland-protocols \
     libvips \
     xorg-xwayland \
+    xorg-xeyes \
     nodejs \
     pnpm \
     && pacman -Scc --noconfirm

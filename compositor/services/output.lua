@@ -7,6 +7,8 @@ local state = require("compositor.state")
 local log = require("shared.log")
 local ffi = wl._ffi
 local event_emitter = require("shared.emitter")
+local Scope = require("shared.scope")
+local Output = require("shared.wayland.output")
 
 local core_service = require("compositor.services.core")
 
@@ -52,9 +54,6 @@ local output_service = {
     -- Event emitter for service events
     events = event_emitter.new(),
 
-    -- Local registry for output -> listener data mapping
-    registry = wl.new_registry(),
-
     -- State
     initialized = false,
 }
@@ -64,24 +63,7 @@ local function is_null(value)
 end
 
 local function find_output_mode(wlr_output, width, height, refresh_rate)
-    if not width or not height then
-        return nil
-    end
-
-    local modes = ffi.cast("struct wl_list*",
-        ffi.cast("char*", wlr_output) + wl.offsetof("struct wlr_output", "modes"))
-    local pos = modes.next
-    while pos ~= nil and pos ~= ffi.NULL and wl.ptr_to_num(pos) ~= wl.ptr_to_num(modes) do
-        local mode = wl.container_of(pos, "struct wlr_output_mode", "link")
-        if mode.width == width and mode.height == height then
-            if not refresh_rate or refresh_rate == 0 or mode.refresh == refresh_rate * 1000 then
-                return mode
-            end
-        end
-        pos = pos.next
-    end
-
-    return nil
+    return Output.find_mode(wlr_output, width, height, refresh_rate)
 end
 
 local function set_configured_mode(output_state, wlr_output, config)
@@ -138,17 +120,9 @@ local function commit_preferred_output_state(wlr_output, config, output_name)
     return ok
 end
 
-local function destroy_registered_listener(registry, listener)
-    if not listener then
-        return
-    end
-    registry:remove(listener)
-    wl.destroy_listener(listener)
-end
-
 -- Handle output frame event
 local function output_frame(listener, data)
-    local output = output_service.registry:get(listener)
+    local output = wl.Listener.get_data(listener)
     if not output then return end
 
     -- render_service is loaded after output_service, require at runtime
@@ -158,29 +132,23 @@ end
 
 -- Handle output state request
 local function output_request_state(listener, data)
-    local output = output_service.registry:get(listener)
+    local output = wl.Listener.get_data(listener)
     if not output then return end
 
-    local event = ffi.cast("const struct wlr_output_event_request_state*", data)
-    if not wl.roots.output_commit_state(output.wlr_output, event.state) then
+    local event = wl.event(data, "const struct wlr_output_event_request_state*")
+    if not wl.roots.output_commit_state(output:raw(), event.state) then
         log.warn("Requested output state commit failed for %s", output.name or "<unknown>")
     end
 end
 
 -- Handle output destruction
 local function output_destroy(listener, data)
-    local output = output_service.registry:get(listener)
+    local output = wl.Listener.get_data(listener)
     if not output then return end
-
 
     -- Emit destroy event before cleanup
     output_service.events:emit("output:destroy", output)
-    output_service.events:emit("output:remove", output.wlr_output)
-
-    -- Remove listeners from their signals and callback roots
-    destroy_registered_listener(output_service.registry, output.frame_listener)
-    destroy_registered_listener(output_service.registry, output.request_state_listener)
-    destroy_registered_listener(output_service.registry, output.destroy_listener)
+    output_service.events:emit("output:remove", output)
 
     -- Remove from outputs list
     for i, o in ipairs(output_service.outputs) do
@@ -190,10 +158,11 @@ local function output_destroy(listener, data)
         end
     end
 
+    output:close()
 end
 
 local function server_new_output(listener, data)
-    local wlr_output = ffi.cast("struct wlr_output*", data)
+    local wlr_output = wl.event(data, "struct wlr_output*")
     local output_name = ffi.string(wlr_output.name)
 
 
@@ -230,24 +199,16 @@ local function server_new_output(listener, data)
         commit_preferred_output_state(wlr_output, config, output_name)
     end
 
-    -- Create output tracking object
-    local output = {
+    local output = Output.new({
         wlr_output = wlr_output,
+        output_layout = output_service.output_layout,
         name = output_name,
-    }
+        scope = Scope.new("output:" .. output_name),
+    })
 
-    -- Set up listeners
-    output.frame_listener = wl.create_listener(output_frame)
-    output_service.registry:set(output.frame_listener, output)
-    wl.signal_add(wlr_output.events.frame, output.frame_listener)
-
-    output.request_state_listener = wl.create_listener(output_request_state)
-    output_service.registry:set(output.request_state_listener, output)
-    wl.signal_add(wlr_output.events.request_state, output.request_state_listener)
-
-    output.destroy_listener = wl.create_listener(output_destroy)
-    output_service.registry:set(output.destroy_listener, output)
-    wl.signal_add(wlr_output.events.destroy, output.destroy_listener)
+    output:scope():listen(wlr_output.events.frame, output_frame, output)
+    output:scope():listen(wlr_output.events.request_state, output_request_state, output)
+    output:scope():listen(wlr_output.events.destroy, output_destroy, output)
 
     table.insert(output_service.outputs, output)
 
@@ -258,14 +219,14 @@ local function server_new_output(listener, data)
     else
         l_output = wl.roots.output_layout_add_auto(output_service.output_layout, wlr_output)
     end
-    output.layout_output = l_output
+    output:set_layout_output(l_output)
 
     -- If scene is available, create scene output
     if output_service.scene then
         local scene_output = wl.roots.scene_output_create(output_service.scene, wlr_output)
         if not is_null(scene_output) and not is_null(l_output) then
             wl.roots.scene_output_layout_add_output(output_service.scene_layout, l_output, scene_output)
-            output.scene_output = scene_output
+            output:set_scene_output(scene_output)
         else
             log.warn("Failed to create scene output for %s", output_name)
         end
@@ -273,7 +234,7 @@ local function server_new_output(listener, data)
 
     -- Emit new_output event (also as output:add for plugins)
     output_service.events:emit("output:create", output)
-    output_service.events:emit("output:add", output.wlr_output, output_name)
+    output_service.events:emit("output:add", output, output_name)
 end
 
 -- Initialize the output service
@@ -321,8 +282,8 @@ function output_service:init()
     end
 
     -- Listen for new outputs
-    self.listeners.new_output = wl.create_listener(server_new_output)
-    wl.signal_add(core_service:get_backend().events.new_output, self.listeners.new_output)
+    self.scope = Scope.new("output_service")
+    self.listeners.new_output = self.scope:listen(core_service:get_backend().events.new_output, server_new_output, self)
 
     self.initialized = true
 end
@@ -334,11 +295,11 @@ function output_service:set_scene(scene, scene_layout)
 
     -- Create scene outputs for any existing outputs
     for _, output in ipairs(self.outputs) do
-        if not output.scene_output then
-            local scene_output = wl.roots.scene_output_create(scene, output.wlr_output)
-            if not is_null(scene_output) and not is_null(output.layout_output) then
-                wl.roots.scene_output_layout_add_output(scene_layout, output.layout_output, scene_output)
-                output.scene_output = scene_output
+        if not output:scene_output() then
+            local scene_output = wl.roots.scene_output_create(scene, output:raw())
+            if not is_null(scene_output) and not is_null(output:layout_output()) then
+                wl.roots.scene_output_layout_add_output(scene_layout, output:layout_output(), scene_output)
+                output:set_scene_output(scene_output)
             else
                 log.warn("Failed to create scene output for %s", output.name or "<unknown>")
             end
@@ -365,38 +326,44 @@ end
 
 -- Get output dimensions
 function output_service:get_output_dimensions(wlr_output)
-    local function effective_dimensions(output_ptr)
-        if output_ptr and wl.roots.output_effective_resolution then
-            local width = ffi.new("int[1]")
-            local height = ffi.new("int[1]")
-            local ok = pcall(wl.roots.output_effective_resolution, output_ptr, width, height)
-            if ok and width[0] > 0 and height[0] > 0 then
-                return width[0], height[0]
-            end
-        end
-        return nil, nil
+    if type(wlr_output) == "table" and wlr_output.dimensions then
+        return wlr_output:dimensions()
     end
 
     -- Find the output in our list
     for _, output in ipairs(self.outputs) do
-        if output.wlr_output == wlr_output then
-            local width, height = effective_dimensions(output.wlr_output)
-            return width or output.wlr_output.width, height or output.wlr_output.height
+        if output:raw() == wlr_output then
+            return output:dimensions()
         end
     end
     -- If passed an output object directly
-    if wlr_output.width then
-        local width, height = effective_dimensions(wlr_output)
-        return width or wlr_output.width, height or wlr_output.height
+    if wlr_output and wlr_output.width then
+        return wlr_output.width, wlr_output.height
     end
     return nil, nil
 end
 
 -- Get output position in layout
 function output_service:get_output_position(wlr_output)
+    if type(wlr_output) == "table" and wlr_output.position then
+        return wlr_output:position()
+    end
     local box = ffi.new("struct wlr_box")
     wl.roots.output_layout_get_box(self.output_layout, wlr_output, box)
     return box.x, box.y
+end
+
+function output_service:shutdown()
+    if self.scope then
+        self.scope:close()
+        self.scope = nil
+    end
+
+    for _, output in ipairs(self.outputs) do
+        output:close()
+    end
+    self.outputs = {}
+    self.initialized = false
 end
 
 output_service._private = {

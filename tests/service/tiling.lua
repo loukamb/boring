@@ -9,7 +9,11 @@ return function(t)
 
     local function state()
         local monitor_state = {
-            output = { wlr_output = { width = 800, height = 600 } },
+            output = {
+                dimensions = function()
+                    return 800, 600
+                end,
+            },
             config = { gaps = { inner = 0, outer = 0, smart = false } },
         }
         tiling:init(monitor_state)

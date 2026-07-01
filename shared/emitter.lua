@@ -1,69 +1,104 @@
---- Simple event emitter for pub/sub patterns
----@class shared.emitter
-
---- @class EventEmitter
---- @field listeners table<string, function[]> Map of event names to callback arrays
-
 local event_emitter = {}
 
----Create a new event emitter instance
----@return EventEmitter A new emitter with on/off/emit methods
+local EventEmitter = {}
+EventEmitter.__index = EventEmitter
+
+local ListenerHandle = {}
+ListenerHandle.__index = ListenerHandle
+
+function ListenerHandle:off()
+    if self._closed then
+        return
+    end
+    self._closed = true
+    self.emitter:off(self.event, self)
+end
+
 function event_emitter.new()
-    local emitter = { listeners = {} }
+    return setmetatable({ _listeners = {} }, EventEmitter)
+end
 
-    ---Register a callback for an event
-    ---@param event string Event name
-    ---@param callback function Callback function to invoke
-    function emitter:on(event, callback)
-        if not self.listeners[event] then
-            self.listeners[event] = {}
-        end
-        local listener = {
-            event = event,
-            callback = callback,
-            emitter = self,
-        }
-        table.insert(self.listeners[event], listener)
+function EventEmitter:on(event, callback)
+    assert(type(event) == "string", "event name must be a string")
+    assert(type(callback) == "function", "event callback must be a function")
 
-        function listener:off()
-            self.emitter:off(self.event, self)
-        end
-
-        return listener
+    local listeners = self._listeners[event]
+    if not listeners then
+        listeners = {}
+        self._listeners[event] = listeners
     end
 
-    ---Unregister a callback from an event
-    ---@param event string Event name
-    ---@param callback function|table The exact callback or listener handle to remove
-    function emitter:off(event, callback)
-        if not self.listeners[event] then
-            return
-        end
-        for i, listener in ipairs(self.listeners[event]) do
-            if listener == callback or listener.callback == callback then
-                table.remove(self.listeners[event], i)
-                break
+    local listener = setmetatable({
+        event = event,
+        callback = callback,
+        emitter = self,
+        _closed = false,
+    }, ListenerHandle)
+
+    table.insert(listeners, listener)
+    return listener
+end
+
+function EventEmitter:off(event, callback)
+    local listeners = self._listeners[event]
+    if not listeners then
+        return
+    end
+
+    for i, listener in ipairs(listeners) do
+        if listener == callback or listener.callback == callback then
+            listener._closed = true
+            table.remove(listeners, i)
+            if #listeners == 0 then
+                self._listeners[event] = nil
             end
-        end
-    end
-
-    ---Emit an event, calling all registered callbacks
-    ---@param event string Event name
-    ---@param ... any Arguments to pass to callbacks
-    function emitter:emit(event, ...)
-        if not self.listeners[event] then
             return
         end
-        for _, listener in ipairs(self.listeners[event]) do
-            local ok, err = pcall(listener.callback, ...)
+    end
+end
+
+function EventEmitter:emit(event, ...)
+    local listeners = self._listeners[event]
+    if not listeners then
+        return
+    end
+
+    local snapshot = {}
+    for i, listener in ipairs(listeners) do
+        snapshot[i] = listener
+    end
+
+    for _, listener in ipairs(snapshot) do
+        if not listener._closed then
+            local ok, err = xpcall(listener.callback, debug.traceback, ...)
             if not ok then
                 local log = require("shared.log")
                 log.error("Event '%s' listener error: %s", event, err)
             end
         end
     end
-
-    return emitter
 end
+
+function EventEmitter:clear(event)
+    if event then
+        local listeners = self._listeners[event]
+        if listeners then
+            for _, listener in ipairs(listeners) do
+                listener._closed = true
+            end
+        end
+        self._listeners[event] = nil
+        return
+    end
+
+    for _, listeners in pairs(self._listeners) do
+        for _, listener in ipairs(listeners) do
+            listener._closed = true
+        end
+    end
+    self._listeners = {}
+end
+
+event_emitter.EventEmitter = EventEmitter
 
 return event_emitter

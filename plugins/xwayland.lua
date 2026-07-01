@@ -3,207 +3,161 @@
 
 local log = require("shared.log")
 local wl = require("shared.wayland.server")
+local Scope = require("shared.scope")
 local ffi = wl._ffi
 
 local plugin = {
     name = "xwayland",
 }
 
--- State
 local xwayland = nil
-local listeners = {}
 local unmanaged_surfaces = {}
 local managed_surfaces = {}
 
 --------------------------------------------------------------------------------
 -- Unmanaged Surfaces (override_redirect = true)
--- Popups, menus, tooltips - render above everything
 --------------------------------------------------------------------------------
 
 local function create_unmanaged(xsurface)
     local surface_service = require("compositor.services.surface")
 
-    local surface = {
+    local state = {
         xsurface = xsurface,
         scene_surface = nil,
-        listeners = {},
+        scope = Scope.new("xwayland:unmanaged"),
+        surface_scope = nil,
     }
 
-    -- Handle map
-    surface.listeners.map = wl.create_listener(function(listener, data)
+    local function map()
         if not xsurface.surface or xsurface.surface == ffi.NULL then return end
 
-        -- Create scene surface in unmanaged layer
-        surface.scene_surface = wl.roots.scene_surface_create(
+        state.scene_surface = wl.roots.scene_surface_create(
             surface_service.layers.unmanaged,
             xsurface.surface
         )
 
-        if surface.scene_surface and surface.scene_surface ~= ffi.NULL then
-            -- Position at X11 coordinates
+        if state.scene_surface and state.scene_surface ~= ffi.NULL then
             wl.roots.scene_node_set_position(
-                surface.scene_surface.buffer.node,
-                xsurface.x, xsurface.y
+                state.scene_surface.buffer.node,
+                xsurface.x,
+                xsurface.y
             )
         end
-    end)
+    end
 
-    -- Handle unmap
-    surface.listeners.unmap = wl.create_listener(function(listener, data)
-        if surface.scene_surface and surface.scene_surface ~= ffi.NULL then
-            wl.roots.scene_node_destroy(surface.scene_surface.buffer.node)
-            surface.scene_surface = nil
+    local function unmap()
+        if state.scene_surface and state.scene_surface ~= ffi.NULL then
+            wl.roots.scene_node_destroy(state.scene_surface.buffer.node)
+            state.scene_surface = nil
         end
-    end)
+    end
 
-    -- Handle geometry changes
-    surface.listeners.set_geometry = wl.create_listener(function(listener, data)
-        if surface.scene_surface and surface.scene_surface ~= ffi.NULL then
-            wl.roots.scene_node_set_position(
-                surface.scene_surface.buffer.node,
-                xsurface.x, xsurface.y
-            )
-        end
-    end)
-
-    -- Handle configure requests
-    surface.listeners.request_configure = wl.create_listener(function(listener, data)
-        local ev = ffi.cast("struct wlr_xwayland_surface_configure_event*", data)
+    state.scope:listen(xsurface.events.request_configure, function(_, data)
+        local ev = wl.event(data, "struct wlr_xwayland_surface_configure_event*")
         wl.roots.xwayland_surface_configure(xsurface, ev.x, ev.y, ev.width, ev.height)
     end)
 
-    -- Handle destroy
-    surface.listeners.destroy = wl.create_listener(function(listener, data)
-        -- Clean up listeners
-        for _, l in pairs(surface.listeners) do
-            wl.destroy_listener(l)
+    state.scope:listen(xsurface.events.set_geometry, function()
+        if state.scene_surface and state.scene_surface ~= ffi.NULL then
+            wl.roots.scene_node_set_position(
+                state.scene_surface.buffer.node,
+                xsurface.x,
+                xsurface.y
+            )
         end
+    end)
+
+    state.scope:listen(xsurface.events.associate, function()
+        if state.surface_scope then
+            state.surface_scope:close()
+        end
+        state.surface_scope = Scope.new("xwayland:unmanaged-surface")
+        if xsurface.surface and xsurface.surface ~= ffi.NULL then
+            state.surface_scope:listen(xsurface.surface.events.map, function() map() end)
+            state.surface_scope:listen(xsurface.surface.events.unmap, function() unmap() end)
+        end
+    end)
+
+    state.scope:listen(xsurface.events.dissociate, function()
+        if state.surface_scope then
+            state.surface_scope:close()
+            state.surface_scope = nil
+        end
+    end)
+
+    state.scope:listen(xsurface.events.destroy, function()
+        unmap()
+        if state.surface_scope then
+            state.surface_scope:close()
+            state.surface_scope = nil
+        end
+        state.scope:close()
         unmanaged_surfaces[xsurface] = nil
     end)
 
-    -- Wire up listeners
-    wl.signal_add(xsurface.events.request_configure, surface.listeners.request_configure)
-
-    -- Associate/dissociate for surface lifecycle
-    surface.listeners.associate = wl.create_listener(function(listener, data)
-        if xsurface.surface and xsurface.surface ~= ffi.NULL then
-            wl.signal_add(xsurface.surface.events.map, surface.listeners.map)
-            wl.signal_add(xsurface.surface.events.unmap, surface.listeners.unmap)
-        end
-    end)
-
-    surface.listeners.dissociate = wl.create_listener(function(listener, data)
-        wl.list_remove(surface.listeners.map[0].link)
-        wl.list_remove(surface.listeners.unmap[0].link)
-    end)
-
-    wl.signal_add(xsurface.events.associate, surface.listeners.associate)
-    wl.signal_add(xsurface.events.dissociate, surface.listeners.dissociate)
-    wl.signal_add(xsurface.events.destroy, surface.listeners.destroy)
-    wl.signal_add(xsurface.events.set_geometry, surface.listeners.set_geometry)
-
-    unmanaged_surfaces[xsurface] = surface
-    return surface
+    unmanaged_surfaces[xsurface] = state
+    return state
 end
 
 --------------------------------------------------------------------------------
 -- Managed Surfaces (regular X11 windows)
--- Integrated into compositor as normal windows
 --------------------------------------------------------------------------------
 
 local function create_managed(xsurface)
     local surface_service = require("compositor.services.surface")
-    local core_service = require("compositor.services.core")
 
-    local surface = {
+    local state = {
         xsurface = xsurface,
-        scene_tree = nil,
+        surface = nil,
         mapped = false,
-        listeners = {},
-        -- Surface properties
-        title = nil,
-        class = nil,
-        role = "xwayland",
+        scope = Scope.new("xwayland:managed"),
+        surface_scope = nil,
     }
 
-    -- Handle map
-    surface.listeners.map = wl.create_listener(function(listener, data)
-        if not xsurface.surface or xsurface.surface == ffi.NULL then return end
+    local function update_metadata(surface)
+        if xsurface.title and xsurface.title ~= ffi.NULL then
+            surface.title = ffi.string(xsurface.title)
+        end
+        if xsurface.class and xsurface.class ~= ffi.NULL then
+            surface.class = ffi.string(xsurface.class)
+        end
+    end
 
-        -- Create scene tree in windows layer
-        surface.scene_tree = wl.roots.scene_subsurface_tree_create(
+    local function map()
+        if state.mapped or not xsurface.surface or xsurface.surface == ffi.NULL then return end
+
+        local scene_tree = wl.roots.scene_subsurface_tree_create(
             surface_service.layers.windows,
             xsurface.surface
         )
-
-        if surface.scene_tree and surface.scene_tree ~= ffi.NULL then
-            surface.mapped = true
-
-            -- Get title/class
-            if xsurface.title and xsurface.title ~= ffi.NULL then
-                surface.title = ffi.string(xsurface.title)
-            end
-            if xsurface.class and xsurface.class ~= ffi.NULL then
-                surface.class = ffi.string(xsurface.class)
-            end
-
-            -- Add set_size method for layout compatibility
-            function surface:set_size(width, height)
-                wl.roots.xwayland_surface_configure(
-                    self.xsurface,
-                    self.xsurface.x, self.xsurface.y,
-                    width, height
-                )
-            end
-
-            -- Add role_obj shim for borders plugin compatibility
-            -- The borders plugin expects surface.role_obj.base.current.geometry
-            surface.role_obj = {
-                base = {
-                    current = {
-                        geometry = {
-                            width = xsurface.width,
-                            height = xsurface.height,
-                            x = 0,
-                            y = 0,
-                        }
-                    }
-                }
-            }
-
-            -- Add method to update geometry after resize
-            function surface:update_geometry()
-                self.role_obj.base.current.geometry.width = self.xsurface.width
-                self.role_obj.base.current.geometry.height = self.xsurface.height
-            end
-
-            -- Add to window list
-            table.insert(surface_service.windows, 1, surface)
-
-            -- Notify layout service
-            local layout_service = require("compositor.services.layout")
-            layout_service:on_window_add(surface, nil)
-
-            -- Emit map event for plugins
-            surface_service.events:emit("surface:map", surface)
-
-            -- Focus the window
-            surface_service:focus_window(surface)
+        if not scene_tree or scene_tree == ffi.NULL then
+            return
         end
-    end)
 
-    -- Handle unmap
-    surface.listeners.unmap = wl.create_listener(function(listener, data)
-        if not surface.mapped then return end
+        local surface = surface_service:upgrade(xsurface.surface, "xwayland", xsurface, scene_tree)
+        surface.mapped = true
+        update_metadata(surface)
 
-        -- Notify layout
+        state.surface = surface
+        state.mapped = true
+
+        table.insert(surface_service.windows, 1, surface)
+
+        local layout_service = require("compositor.services.layout")
+        layout_service:on_window_add(surface, nil)
+
+        surface_service.events:emit("surface:map", surface)
+        surface_service:focus_window(surface)
+    end
+
+    local function unmap()
+        local surface = state.surface
+        if not state.mapped or not surface then return end
+
         local layout_service = require("compositor.services.layout")
         layout_service:on_window_remove(surface)
-
-        -- Emit unmap event
         surface_service.events:emit("surface:unmap", surface)
 
-        -- Remove from windows list
         for i, w in ipairs(surface_service.windows) do
             if w == surface then
                 table.remove(surface_service.windows, i)
@@ -211,127 +165,102 @@ local function create_managed(xsurface)
             end
         end
 
-        -- Destroy scene tree
-        if surface.scene_tree and surface.scene_tree ~= ffi.NULL then
-            wl.roots.scene_node_destroy(surface.scene_tree.node)
-            surface.scene_tree = nil
+        local scene = surface:scene_node()
+        if scene then
+            scene:destroy()
         end
-
         surface.mapped = false
+
+        state.surface = nil
+        state.mapped = false
+        surface_service:remove_surface(xsurface.surface)
+        surface:set_role("xwayland", xsurface, nil)
+    end
+
+    state.scope:listen(xsurface.events.request_configure, function(_, data)
+        local ev = wl.event(data, "struct wlr_xwayland_surface_configure_event*")
+        wl.roots.xwayland_surface_configure(xsurface, ev.x, ev.y, ev.width, ev.height)
     end)
 
-    -- Handle commit (for plugins)
-    surface.listeners.commit = wl.create_listener(function(listener, data)
-        if surface.mapped then
-            -- Update geometry for borders plugin
-            if surface.update_geometry then
-                surface:update_geometry()
-            end
-            surface_service.events:emit("surface:commit", surface)
+    state.scope:listen(xsurface.events.request_fullscreen, function()
+        if state.surface then
+            local layout_service = require("compositor.services.layout")
+            layout_service:enter_fullscreen(state.surface)
         end
     end)
 
-    -- Handle configure requests
-    surface.listeners.request_configure = wl.create_listener(function(listener, data)
-        local ev = ffi.cast("struct wlr_xwayland_surface_configure_event*", data)
-
-        if not surface.mapped then
-            -- Not mapped yet, allow configure
-            wl.roots.xwayland_surface_configure(xsurface, ev.x, ev.y, ev.width, ev.height)
-        else
-            -- Mapped - constrain to current position/size if tiled
-            -- For now, allow floating behavior
-            wl.roots.xwayland_surface_configure(xsurface, ev.x, ev.y, ev.width, ev.height)
-        end
-    end)
-
-    -- Handle fullscreen requests
-    surface.listeners.request_fullscreen = wl.create_listener(function(listener, data)
-        -- TODO: Implement fullscreen
-    end)
-
-    -- Handle move requests
-    surface.listeners.request_move = wl.create_listener(function(listener, data)
-        if not surface.mapped then return end
+    state.scope:listen(xsurface.events.request_move, function()
+        if not state.surface then return end
         local input_service = require("compositor.services.input")
         local layout_service = require("compositor.services.layout")
         local cursor = input_service:get_cursor()
-        layout_service:begin_move(surface, cursor.x, cursor.y)
+        layout_service:begin_move(state.surface, cursor.x, cursor.y)
     end)
 
-    -- Handle resize requests
-    surface.listeners.request_resize = wl.create_listener(function(listener, data)
-        if not surface.mapped then return end
-        local ev = ffi.cast("struct wlr_xwayland_resize_event*", data)
+    state.scope:listen(xsurface.events.request_resize, function(_, data)
+        if not state.surface then return end
+        local ev = wl.event(data, "struct wlr_xwayland_resize_event*")
         local input_service = require("compositor.services.input")
         local layout_service = require("compositor.services.layout")
         local cursor = input_service:get_cursor()
-        layout_service:begin_resize(surface, cursor.x, cursor.y, ev.edges)
+        layout_service:begin_resize(state.surface, cursor.x, cursor.y, ev.edges)
     end)
 
-    -- Handle title changes
-    surface.listeners.set_title = wl.create_listener(function(listener, data)
-        if xsurface.title and xsurface.title ~= ffi.NULL then
-            surface.title = ffi.string(xsurface.title)
-        end
-    end)
-
-    -- Handle class changes
-    surface.listeners.set_class = wl.create_listener(function(listener, data)
-        if xsurface.class and xsurface.class ~= ffi.NULL then
-            surface.class = ffi.string(xsurface.class)
+    state.scope:listen(xsurface.events.set_title, function()
+        if state.surface then
+            update_metadata(state.surface)
         end
     end)
 
-    -- Handle destroy
-    surface.listeners.destroy = wl.create_listener(function(listener, data)
-        if surface.mapped then
-            surface.listeners.unmap[0].notify(surface.listeners.unmap, nil)
+    state.scope:listen(xsurface.events.set_class, function()
+        if state.surface then
+            update_metadata(state.surface)
         end
+    end)
 
-        for _, l in pairs(surface.listeners) do
-            wl.destroy_listener(l)
+    state.scope:listen(xsurface.events.associate, function()
+        if state.surface_scope then
+            state.surface_scope:close()
         end
+        state.surface_scope = Scope.new("xwayland:managed-surface")
+        if xsurface.surface and xsurface.surface ~= ffi.NULL then
+            state.surface_scope:listen(xsurface.surface.events.map, function() map() end)
+            state.surface_scope:listen(xsurface.surface.events.unmap, function() unmap() end)
+            state.surface_scope:listen(xsurface.surface.events.commit, function()
+                if state.surface and state.mapped then
+                    surface_service.events:emit("surface:commit", state.surface)
+                end
+            end)
+        end
+    end)
+
+    state.scope:listen(xsurface.events.dissociate, function()
+        if state.surface_scope then
+            state.surface_scope:close()
+            state.surface_scope = nil
+        end
+    end)
+
+    state.scope:listen(xsurface.events.destroy, function()
+        unmap()
+        if state.surface_scope then
+            state.surface_scope:close()
+            state.surface_scope = nil
+        end
+        state.scope:close()
         managed_surfaces[xsurface] = nil
     end)
 
-    -- Wire up listeners
-    wl.signal_add(xsurface.events.request_configure, surface.listeners.request_configure)
-    wl.signal_add(xsurface.events.request_fullscreen, surface.listeners.request_fullscreen)
-    wl.signal_add(xsurface.events.request_move, surface.listeners.request_move)
-    wl.signal_add(xsurface.events.request_resize, surface.listeners.request_resize)
-    wl.signal_add(xsurface.events.set_title, surface.listeners.set_title)
-    wl.signal_add(xsurface.events.set_class, surface.listeners.set_class)
-    wl.signal_add(xsurface.events.destroy, surface.listeners.destroy)
-
-    -- Associate/dissociate
-    surface.listeners.associate = wl.create_listener(function(listener, data)
-        if xsurface.surface and xsurface.surface ~= ffi.NULL then
-            wl.signal_add(xsurface.surface.events.map, surface.listeners.map)
-            wl.signal_add(xsurface.surface.events.unmap, surface.listeners.unmap)
-            wl.signal_add(xsurface.surface.events.commit, surface.listeners.commit)
-        end
-    end)
-
-    surface.listeners.dissociate = wl.create_listener(function(listener, data)
-        wl.list_remove(surface.listeners.map[0].link)
-        wl.list_remove(surface.listeners.unmap[0].link)
-        wl.list_remove(surface.listeners.commit[0].link)
-    end)
-
-    wl.signal_add(xsurface.events.associate, surface.listeners.associate)
-    wl.signal_add(xsurface.events.dissociate, surface.listeners.dissociate)
-
-    managed_surfaces[xsurface] = surface
-    return surface
+    managed_surfaces[xsurface] = state
+    return state
 end
 
 --------------------------------------------------------------------------------
--- New Surface Handler
+-- Plugin Lifecycle
 --------------------------------------------------------------------------------
 
 local function handle_new_surface(listener, data)
-    local xsurface = ffi.cast("struct wlr_xwayland_surface*", data)
+    local xsurface = wl.event(data, "struct wlr_xwayland_surface*")
 
     if xsurface.override_redirect then
         create_unmanaged(xsurface)
@@ -340,13 +269,7 @@ local function handle_new_surface(listener, data)
     end
 end
 
---------------------------------------------------------------------------------
--- Plugin Lifecycle
---------------------------------------------------------------------------------
-
 function plugin:mount(config)
-    -- XWayland needs core_service to be initialized first.
-    -- Subscribe to compositor:ready event to initialize when services are up.
     self._config = config
     self._initialized = false
 
@@ -358,20 +281,16 @@ function plugin:mount(config)
     return {}
 end
 
--- Actually initialize XWayland (called lazily or after services are ready)
 function plugin:init_xwayland()
     if self._initialized then return end
 
     local core_service = require("compositor.services.core")
-    local surface_service = require("compositor.services.surface")
 
-    -- Check if XWayland function exists
     if not wl.roots.xwayland_create then
         log.warn("XWayland not available (wlroots may be built without XWayland support)")
         return false
     end
 
-    -- Get compositor resources directly
     local display = core_service.wl_display
     local compositor = core_service.compositor
 
@@ -380,7 +299,6 @@ function plugin:init_xwayland()
         return false
     end
 
-    -- Create XWayland server (lazy mode) with error handling
     local ok, result = pcall(function()
         return wl.roots.xwayland_create(display, compositor, true)
     end)
@@ -396,19 +314,15 @@ function plugin:init_xwayland()
         return false
     end
 
-    -- Set DISPLAY environment variable immediately (like Sway does)
-    -- This allows X11 apps to connect even before the ready event
+    self._scope = Scope.new("xwayland")
+
     if xwayland.display_name and xwayland.display_name ~= ffi.NULL then
-        local display_name = ffi.string(xwayland.display_name)
-        wl.setenv("DISPLAY", display_name)
+        wl.setenv("DISPLAY", ffi.string(xwayland.display_name))
     end
 
-    -- Listen for new surfaces
-    listeners.new_surface = wl.create_listener(handle_new_surface)
-    wl.signal_add(xwayland.events.new_surface, listeners.new_surface)
+    self._scope:listen(xwayland.events.new_surface, handle_new_surface, self)
 
-    -- Ready listener (for atom resolution and DISPLAY env var)
-    listeners.ready = wl.create_listener(function(listener, data)
+    self._scope:listen(xwayland.events.ready, function()
         local display_name = xwayland.display_name and xwayland.display_name ~= ffi.NULL
             and ffi.string(xwayland.display_name) or nil
         if display_name then
@@ -416,15 +330,13 @@ function plugin:init_xwayland()
         else
             log.warn("XWayland ready but no display name available")
         end
-        -- Set seat for XWayland
+
         local input_service = require("compositor.services.input")
         if input_service.seat then
             wl.roots.xwayland_set_seat(xwayland, input_service.seat)
         end
-    end)
-    wl.signal_add(xwayland.events.ready, listeners.ready)
+    end, self)
 
-    -- Register xwayland protocols
     local proto = require("shared.wayland.registry")
     proto.implement("xwayland_shell_v1")
     proto.implement("xwayland_surface_v1")
@@ -434,25 +346,28 @@ function plugin:init_xwayland()
 end
 
 function plugin:unmount()
-    -- Clean up ready listener
     if self._ready_listener and self._ready_listener.off then
         self._ready_listener:off()
         self._ready_listener = nil
     end
 
-    -- Clean up listeners
-    for _, l in pairs(listeners) do
-        wl.destroy_listener(l)
+    if self._scope then
+        self._scope:close()
+        self._scope = nil
     end
-    listeners = {}
 
-    -- Destroy XWayland
+    for _, surface in pairs(unmanaged_surfaces) do
+        surface.scope:close()
+    end
+    for _, surface in pairs(managed_surfaces) do
+        surface.scope:close()
+    end
+
     if xwayland and xwayland ~= ffi.NULL then
         wl.roots.xwayland_destroy(xwayland)
         xwayland = nil
     end
 
-    -- Clear surface tables
     unmanaged_surfaces = {}
     managed_surfaces = {}
     self._initialized = false

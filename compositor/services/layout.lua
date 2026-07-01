@@ -45,7 +45,7 @@ local layout_service = {
 --------------------------------------------------------------------------------
 -- Each monitor has its own layout state:
 -- {
---     output = wlr_output reference,
+--     output = Output object,
 --     layout_name = "stacking",
 --     layout = layout_implementation reference,
 --     config = { cell = 16, gap = 4, ... },
@@ -92,7 +92,7 @@ end
 
 function layout_service:create_monitor_state(output, config)
     local wl = require("shared.wayland.server")
-    local ptr_key = wl.ptr_to_num(output.wlr_output)
+    local ptr_key = wl.ptr_to_num(output:raw())
 
     local layout_name = config.mode or self.default_layout
     local layout = self.layouts[layout_name]
@@ -134,7 +134,7 @@ end
 
 function layout_service:get_monitor_state(output)
     local wl = require("shared.wayland.server")
-    local ptr_key = wl.ptr_to_num(output.wlr_output)
+    local ptr_key = wl.ptr_to_num(output:raw())
     return self.monitor_states[ptr_key]
 end
 
@@ -146,7 +146,7 @@ end
 
 function layout_service:remove_monitor_state(output)
     local wl = require("shared.wayland.server")
-    local ptr_key = wl.ptr_to_num(output.wlr_output)
+    local ptr_key = wl.ptr_to_num(output:raw())
     local monitor_state = self.monitor_states[ptr_key]
 
     if monitor_state and monitor_state.layout and monitor_state.layout.shutdown then
@@ -176,7 +176,7 @@ function layout_service:on_window_add(surface, output)
     end
 
     table.insert(monitor_state.windows, surface)
-    surface._monitor_state = monitor_state
+    surface:set_monitor_state(monitor_state)
 
     if monitor_state.layout and monitor_state.layout.on_window_add then
         monitor_state.layout:on_window_add(monitor_state, surface)
@@ -184,7 +184,7 @@ function layout_service:on_window_add(surface, output)
 end
 
 function layout_service:on_window_remove(surface)
-    local monitor_state = surface._monitor_state
+    local monitor_state = surface:monitor_state()
     if not monitor_state then return end
 
     if monitor_state.fullscreen_surface == surface then
@@ -204,11 +204,11 @@ function layout_service:on_window_remove(surface)
         monitor_state.layout:on_window_remove(monitor_state, surface)
     end
 
-    surface._monitor_state = nil
+    surface:set_monitor_state(nil)
 end
 
 function layout_service:on_window_resize(surface, width, height)
-    local monitor_state = surface._monitor_state
+    local monitor_state = surface:monitor_state()
     if not monitor_state then return end
 
     if monitor_state.layout and monitor_state.layout.on_window_resize then
@@ -219,7 +219,7 @@ end
 function layout_service:split_focused(layout)
     local surface_service = require("compositor.services.surface")
     local surface = surface_service:get_focused_window()
-    local monitor_state = surface and surface._monitor_state or self:get_primary_monitor_state()
+    local monitor_state = surface and surface:monitor_state() or self:get_primary_monitor_state()
     if not monitor_state or not monitor_state.layout then
         return false
     end
@@ -237,7 +237,7 @@ function layout_service:split_focused(layout)
 end
 
 function layout_service:position_window(surface)
-    local monitor_state = surface._monitor_state
+    local monitor_state = surface:monitor_state()
     if not monitor_state then return end
 
     if monitor_state.layout and monitor_state.layout.position_window then
@@ -259,7 +259,7 @@ end
 --------------------------------------------------------------------------------
 
 function layout_service:begin_move(surface, cursor_x, cursor_y)
-    local monitor_state = surface._monitor_state
+    local monitor_state = surface:monitor_state()
     if not monitor_state then return false end
 
     if monitor_state.layout and monitor_state.layout.begin_move then
@@ -269,7 +269,7 @@ function layout_service:begin_move(surface, cursor_x, cursor_y)
 end
 
 function layout_service:update_move(surface, cursor_x, cursor_y)
-    local monitor_state = surface._monitor_state
+    local monitor_state = surface:monitor_state()
     if not monitor_state then return end
 
     if monitor_state.layout and monitor_state.layout.update_move then
@@ -278,7 +278,7 @@ function layout_service:update_move(surface, cursor_x, cursor_y)
 end
 
 function layout_service:end_move(surface)
-    local monitor_state = surface._monitor_state
+    local monitor_state = surface:monitor_state()
     if not monitor_state then return end
 
     if monitor_state.layout and monitor_state.layout.end_move then
@@ -287,7 +287,7 @@ function layout_service:end_move(surface)
 end
 
 function layout_service:begin_resize(surface, cursor_x, cursor_y, edges)
-    local monitor_state = surface._monitor_state
+    local monitor_state = surface:monitor_state()
     if not monitor_state then return false end
 
     if monitor_state.layout and monitor_state.layout.begin_resize then
@@ -297,7 +297,7 @@ function layout_service:begin_resize(surface, cursor_x, cursor_y, edges)
 end
 
 function layout_service:update_resize(surface, cursor_x, cursor_y)
-    local monitor_state = surface._monitor_state
+    local monitor_state = surface:monitor_state()
     if not monitor_state then return end
 
     if monitor_state.layout and monitor_state.layout.update_resize then
@@ -306,7 +306,7 @@ function layout_service:update_resize(surface, cursor_x, cursor_y)
 end
 
 function layout_service:end_resize(surface)
-    local monitor_state = surface._monitor_state
+    local monitor_state = surface:monitor_state()
     if not monitor_state then return end
 
     if monitor_state.layout and monitor_state.layout.end_resize then
@@ -318,7 +318,7 @@ end
 --------------------------------------------------------------------------------
 
 function layout_service:enter_fullscreen(surface)
-    local monitor_state = surface._monitor_state
+    local monitor_state = surface:monitor_state()
     if not monitor_state then return false end
 
     if monitor_state.layout and monitor_state.layout.enter_fullscreen then
@@ -381,7 +381,7 @@ function layout_service:init()
     -- Listen for output events to create/destroy monitor states
     local output_service = require("compositor.services.output")
     output_service.events:on("output:create", function(output)
-        local output_name = require("ffi").string(output.wlr_output.name)
+        local output_name = output.name
         local config = state.resolve_monitor(output_name)
         local layout_config = config.layout or {}
         self:create_monitor_state(output, layout_config)
@@ -393,7 +393,7 @@ function layout_service:init()
 
     -- Create monitor states for any existing outputs
     for _, output in ipairs(output_service:get_outputs()) do
-        local output_name = require("ffi").string(output.wlr_output.name)
+        local output_name = output.name
         local config = state.resolve_monitor(output_name)
         local layout_config = config.layout or {}
         self:create_monitor_state(output, layout_config)

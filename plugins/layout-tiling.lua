@@ -14,6 +14,19 @@ local output_service = require("compositor.services.output")
 local tiling = {}
 local clip_box = ffi.new("struct wlr_box")
 
+local function has_scene(surface)
+    return surface and surface.scene_node and surface:scene_node() ~= nil
+end
+
+local function raw_scene_node(surface)
+    local scene = surface:scene_node()
+    return scene and scene:node() or nil
+end
+
+local function geometry(surface)
+    return surface:geometry()
+end
+
 --------------------------------------------------------------------------------
 -- Container Data Structures (Sway N-ary tree)
 --------------------------------------------------------------------------------
@@ -447,18 +460,16 @@ arrange_container = function(container, inner_gap)
     if container.type == "leaf" then
         -- Position the actual window
         local surface = container.surface
-        if surface and surface.scene_tree then
+        if has_scene(surface) then
             local node_x = container.x
             local node_y = container.y
 
             -- Account for XDG geometry offset
-            if surface.role_obj then
-                local geo = surface.role_obj.base.geometry
-                node_x = container.x - geo.x
-                node_y = container.y - geo.y
-            end
+            local geo = geometry(surface)
+            node_x = container.x - geo.x
+            node_y = container.y - geo.y
 
-            wl.roots.scene_node_set_position(surface.scene_tree.node, node_x, node_y)
+            surface:set_position(node_x, node_y)
 
             -- Request client to resize
             if surface.set_size then
@@ -472,7 +483,7 @@ arrange_container = function(container, inner_gap)
             clip_box.y = 0
             clip_box.width = container.width
             clip_box.height = container.height
-            pcall(wl.roots.scene_subsurface_tree_set_clip, surface.scene_tree.node, clip_box)
+            pcall(wl.roots.scene_subsurface_tree_set_clip, raw_scene_node(surface), clip_box)
         end
         return
     end
@@ -494,8 +505,7 @@ end
 
 -- Get logical output dimensions (accounting for scale/transform)
 local function get_output_dimensions(output)
-    local width, height = output_service:get_output_dimensions(output.wlr_output)
-    return width or output.wlr_output.width, height or output.wlr_output.height
+    return output:dimensions()
 end
 
 -- Arrange the entire workspace
@@ -504,7 +514,7 @@ local function arrange_workspace(monitor_state)
     if not ts then return end
 
     local output = monitor_state.output
-    if not output or not output.wlr_output then return end
+    if not output then return end
 
     local output_width, output_height = get_output_dimensions(output)
 
@@ -824,17 +834,15 @@ function tiling:position_window(monitor_state, surface)
     if not container then return end
 
     -- Re-apply position using container's cached geometry
-    if surface.scene_tree then
+    if has_scene(surface) then
         local node_x = container.x
         local node_y = container.y
 
-        if surface.role_obj then
-            local geo = surface.role_obj.base.geometry
-            node_x = container.x - geo.x
-            node_y = container.y - geo.y
-        end
+        local geo = geometry(surface)
+        node_x = container.x - geo.x
+        node_y = container.y - geo.y
 
-        wl.roots.scene_node_set_position(surface.scene_tree.node, node_x, node_y)
+        surface:set_position(node_x, node_y)
     end
 end
 
@@ -1114,7 +1122,7 @@ end
 --------------------------------------------------------------------------------
 
 function tiling:enter_fullscreen(monitor_state, surface)
-    if not surface or not surface.scene_tree then
+    if not has_scene(surface) then
         return false
     end
 
@@ -1132,17 +1140,15 @@ function tiling:enter_fullscreen(monitor_state, surface)
 
     -- Position at origin (accounting for geometry offset)
     local node_x, node_y = 0, 0
-    if surface.role_obj then
-        local geo = surface.role_obj.base.geometry
-        node_x = -geo.x
-        node_y = -geo.y
-    end
-    wl.roots.scene_node_set_position(surface.scene_tree.node, node_x, node_y)
+    local geo = geometry(surface)
+    node_x = -geo.x
+    node_y = -geo.y
+    surface:set_position(node_x, node_y)
     surface:set_size(width, height)
-    pcall(wl.roots.scene_subsurface_tree_set_clip, surface.scene_tree.node, nil)
+    pcall(wl.roots.scene_subsurface_tree_set_clip, raw_scene_node(surface), nil)
 
     -- Raise to top
-    wl.roots.scene_node_raise_to_top(surface.scene_tree.node)
+    surface:raise_to_top()
 
     monitor_state.fullscreen_surface = surface
     return true

@@ -17,13 +17,11 @@ function kiosk:shutdown(monitor_state)
 end
 
 function kiosk:on_window_add(monitor_state, surface)
-    local wl = require("shared.wayland.server")
-    
     -- Hide previous window if any
     if monitor_state.kiosk.current_window then
         local prev = monitor_state.kiosk.current_window
-        if prev.scene_tree then
-            wl.roots.scene_node_set_enabled(prev.scene_tree.node, false)
+        if prev.set_enabled then
+            prev:set_enabled(false)
         end
     end
     
@@ -39,9 +37,8 @@ function kiosk:on_window_remove(monitor_state, surface)
         -- Show the most recently active remaining window.
         for i = #monitor_state.windows, 1, -1 do
             local w = monitor_state.windows[i]
-            if w ~= surface and w.scene_tree then
-                local wl = require("shared.wayland.server")
-                wl.roots.scene_node_set_enabled(w.scene_tree.node, true)
+            if w ~= surface and w.set_enabled then
+                w:set_enabled(true)
                 monitor_state.kiosk.current_window = w
                 self:position_window(monitor_state, w)
                 break
@@ -51,15 +48,13 @@ function kiosk:on_window_remove(monitor_state, surface)
 end
 
 function kiosk:position_window(monitor_state, surface)
-    local wl = require("shared.wayland.server")
-    
-    if not surface.scene_tree then return end
+    if not surface or not surface.scene_node or not surface:scene_node() then return end
     
     local output_service = require("compositor.services.output")
-    local width, height = output_service:get_output_dimensions(monitor_state.output.wlr_output)
+    local width, height = output_service:get_output_dimensions(monitor_state.output)
     
     -- Position at origin
-    wl.roots.scene_node_set_position(surface.scene_tree.node, 0, 0)
+    surface:set_position(0, 0)
     
     -- Resize to fill
     surface:set_size(width, height)

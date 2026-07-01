@@ -14,7 +14,7 @@ local plugin = {
 }
 
 -- State
-local background_nodes = {}    -- wlr_output -> { type = "rect"|"client", node = scene_node, process = Process }
+local background_nodes = {}    -- Output object -> { type = "rect"|"client", node = scene_node, process = Process }
 local config_cache = nil
 local wallpaper_processes = {} -- track client processes
 
@@ -52,8 +52,8 @@ local function start_wallpaper_client(output_name, image_path, scale_mode)
 end
 
 -- Cleanup existing wallpaper for an output
-local function cleanup_wallpaper(wlr_output)
-    local existing = background_nodes[wlr_output]
+local function cleanup_wallpaper(output)
+    local existing = background_nodes[output]
     if existing then
         if existing.node then
             wl.roots.scene_node_destroy(existing.node)
@@ -61,17 +61,18 @@ local function cleanup_wallpaper(wlr_output)
         if existing.process and existing.process:is_running() then
             existing.process:stop()
         end
-        background_nodes[wlr_output] = nil
+        background_nodes[output] = nil
     end
 end
 
 -- Create or update wallpaper for an output
-local function update_wallpaper_for_output(wlr_output, output_name)
+local function update_wallpaper_for_output(output)
     local surface_service = require("compositor.services.surface")
     local output_service = require("compositor.services.output")
+    local output_name = output.name
 
     -- Get output dimensions
-    local width, height = output_service:get_output_dimensions(wlr_output)
+    local width, height = output_service:get_output_dimensions(output)
     if not width or width <= 0 then
         width = 1920
         height = 1080
@@ -104,10 +105,10 @@ local function update_wallpaper_for_output(wlr_output, output_name)
     end
 
     -- Remove existing wallpaper
-    cleanup_wallpaper(wlr_output)
+    cleanup_wallpaper(output)
 
     -- Get output position
-    local ox, oy = output_service:get_output_position(wlr_output)
+    local ox, oy = output_service:get_output_position(output)
     ox = ox or 0
     oy = oy or 0
 
@@ -116,7 +117,7 @@ local function update_wallpaper_for_output(wlr_output, output_name)
         local scale_mode = wallpaper_value.scale or "fill"
         local p = start_wallpaper_client(output_name, wallpaper_value.image, scale_mode)
         if p then
-            background_nodes[wlr_output] = { type = "client", process = p }
+            background_nodes[output] = { type = "client", process = p }
         end
         return
     end
@@ -130,7 +131,7 @@ local function update_wallpaper_for_output(wlr_output, output_name)
         )
         if rect and rect ~= ffi.NULL then
             wl.roots.scene_node_set_position(rect.node, ox, oy)
-            background_nodes[wlr_output] = { type = "rect", node = rect.node }
+            background_nodes[output] = { type = "rect", node = rect.node }
         end
         return
     end
@@ -143,7 +144,7 @@ local function update_wallpaper_for_output(wlr_output, output_name)
     )
     if rect and rect ~= ffi.NULL then
         wl.roots.scene_node_set_position(rect.node, ox, oy)
-        background_nodes[wlr_output] = { type = "rect", node = rect.node }
+        background_nodes[output] = { type = "rect", node = rect.node }
     end
 end
 
@@ -158,19 +159,18 @@ function plugin:mount(config)
         -- Create wallpapers for existing outputs
         local outputs = output_service:get_outputs()
         for _, output in ipairs(outputs) do
-            local output_name = ffi.string(output.wlr_output.name)
-            update_wallpaper_for_output(output.wlr_output, output_name)
+            update_wallpaper_for_output(output)
         end
     end)
 
     -- Listen for new outputs
-    self._output_add_listener = output_service.events:on("output:add", function(wlr_output, name)
-        update_wallpaper_for_output(wlr_output, name)
+    self._output_add_listener = output_service.events:on("output:add", function(output)
+        update_wallpaper_for_output(output)
     end)
 
     -- Listen for output removal
-    self._output_remove_listener = output_service.events:on("output:remove", function(wlr_output)
-        cleanup_wallpaper(wlr_output)
+    self._output_remove_listener = output_service.events:on("output:remove", function(output)
+        cleanup_wallpaper(output)
     end)
 
     return {}
@@ -189,7 +189,7 @@ function plugin:unmount()
     end
 
     -- Destroy background nodes and stop client processes
-    for wlr_output, entry in pairs(background_nodes) do
+    for _, entry in pairs(background_nodes) do
         if entry.node then
             wl.roots.scene_node_destroy(entry.node)
         end

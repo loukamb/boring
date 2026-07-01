@@ -90,7 +90,7 @@ plugin("@boring/layout-stacking"):mount({
             icon = "close",
             on_click = function(surface)
                 local wl = require("shared.wayland.server")
-                wl.roots.xdg_toplevel_send_close(surface.role_obj)
+                surface:close()
             end
         },
     }

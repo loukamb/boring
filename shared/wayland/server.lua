@@ -557,6 +557,10 @@ function wayland.notify_callback(fn)
     return ffi.cast("wl_notify_func_t", fn)
 end
 
+function wayland.event(data, ctype)
+    return ffi.cast(ctype, data)
+end
+
 function wayland.alloc(ctype)
     local ptr = ffi.new(ctype .. "[1]")
     ffi.fill(ptr, ffi.sizeof(ctype))

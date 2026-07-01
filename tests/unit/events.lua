@@ -36,4 +36,20 @@ return function(t)
         emitter:emit("event")
         t.eq(calls, 1)
     end)
+
+    t.test("emitter can clear one event or all events", function()
+        local emitter = emitter_module.new()
+        local calls = 0
+        emitter:on("a", function() calls = calls + 1 end)
+        emitter:on("b", function() calls = calls + 10 end)
+
+        emitter:clear("a")
+        emitter:emit("a")
+        emitter:emit("b")
+        t.eq(calls, 10)
+
+        emitter:clear()
+        emitter:emit("b")
+        t.eq(calls, 10)
+    end)
 end

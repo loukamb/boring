@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    cat <<'USAGE'
+Run boring from the Arch Podman image as a nested Wayland compositor.
+
+Usage:
+  scripts/run-wayland-container [-- compositor args...]
+
+Environment:
+  BORING_IMAGE=boring-dev   Container image to use or build.
+  WLR_RENDERER=pixman       Renderer to use. Defaults to pixman for portability.
+  BORING_USE_DRI=1          Pass /dev/dri through and do not force pixman.
+
+The host must already be running a Wayland session. The nested compositor will
+connect to the host WAYLAND_DISPLAY and appear as a regular Wayland window.
+USAGE
+}
+
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+    usage
+    exit 0
+fi
+
+if [[ "${1:-}" == "--" ]]; then
+    shift
+fi
+
+args=("$@")
+has_config=0
+for arg in "${args[@]}"; do
+    if [[ "$arg" == --config || "$arg" == --config=* ]]; then
+        has_config=1
+        break
+    fi
+done
+
+if [[ "$has_config" == "0" ]]; then
+    args=(--config=configs/nested-wayland.lua "${args[@]}")
+fi
+
+repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+image="${BORING_IMAGE:-boring-dev}"
+
+if [[ -z "${XDG_RUNTIME_DIR:-}" || ! -d "$XDG_RUNTIME_DIR" ]]; then
+    echo "XDG_RUNTIME_DIR is not set or does not exist; run this from a Wayland session." >&2
+    exit 2
+fi
+
+wayland_display="${WAYLAND_DISPLAY:-}"
+if [[ -z "$wayland_display" ]]; then
+    for socket in "$XDG_RUNTIME_DIR"/wayland-*; do
+        if [[ -S "$socket" ]]; then
+            wayland_display="$(basename "$socket")"
+            break
+        fi
+    done
+fi
+
+if [[ -z "$wayland_display" ]]; then
+    echo "WAYLAND_DISPLAY is not set and no wayland-* socket was found in XDG_RUNTIME_DIR." >&2
+    exit 2
+fi
+
+if [[ "$wayland_display" = /* ]]; then
+    wayland_socket="$wayland_display"
+else
+    wayland_socket="$XDG_RUNTIME_DIR/$wayland_display"
+fi
+
+if [[ ! -S "$wayland_socket" ]]; then
+    echo "Wayland socket does not exist: $wayland_socket" >&2
+    exit 2
+fi
+
+podman build -t "$image" -f "$repo_dir/Containerfile" "$repo_dir"
+
+podman_args=(
+    --rm
+    -it
+    --userns=keep-id
+    --user "$(id -u):$(id -g)"
+    --security-opt label=disable
+    -v "$repo_dir:/workspace:rw"
+    -v "$XDG_RUNTIME_DIR:$XDG_RUNTIME_DIR:rw"
+    -e "HOME=/tmp"
+    -e "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR"
+    -e "WAYLAND_DISPLAY=$wayland_display"
+    -e "WLR_BACKENDS=wayland"
+    -e "WLR_LIBINPUT_NO_DEVICES=1"
+    -w /workspace
+)
+
+if [[ "${BORING_USE_DRI:-0}" == "1" ]]; then
+    if [[ -e /dev/dri ]]; then
+        podman_args+=(--device /dev/dri)
+    fi
+else
+    podman_args+=(-e "WLR_RENDERER=${WLR_RENDERER:-pixman}")
+fi
+
+exec podman run "${podman_args[@]}" "$image" luajit switch.lua compositor "${args[@]}"

@@ -45,6 +45,36 @@ podman build -t boring-dev -f Containerfile .
 podman run --rm -it -v "$PWD:/workspace" -w /workspace boring-dev
 ```
 
+To try the compositor from the container in your current Wayland session, run it
+nested through the host Wayland socket:
+
+```bash
+scripts/run-wayland-container
+```
+
+The helper rebuilds the development image, then uses wlroots' Wayland backend and
+should open `boring` as a regular window on your host compositor. It defaults to
+the software `pixman` renderer so it does not need GPU device passthrough. By
+default it uses
+`configs/nested-wayland.lua`, which avoids host-reserved Super-key shortcuts,
+launches `xeyes` once on startup, and binds:
+
+- `Alt+Return` or `Ctrl+Alt+Return`: launch `xeyes`
+- `Alt+q`: close the focused window
+- `Alt+Shift+q` or `Ctrl+Alt+q`: exit the compositor
+
+To try GPU rendering instead:
+
+```bash
+BORING_USE_DRI=1 scripts/run-wayland-container
+```
+
+Pass a different config with:
+
+```bash
+scripts/run-wayland-container -- --config=default.lua
+```
+
 To download the compositor, clone the repository, then use `switch.lua` to launch the compositor program:
 
 ```bash
@@ -89,6 +119,14 @@ luajit tests/run.lua --suite unit --format tap
 luajit tests/run.lua --suite service --format tap
 luajit tests/run.lua --suite integration --format tap
 ```
+
+Lifecycle hygiene check:
+
+```bash
+rg "create_listener|destroy_listener|ffi\\.cast" compositor plugins
+```
+
+This should return no matches. Listener ownership in compositor services and plugins should go through `shared.scope`; raw listener helpers and casts belong in `shared/wayland` and targeted listener tests.
 
 ### Plugins
 

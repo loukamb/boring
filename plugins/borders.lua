@@ -37,9 +37,8 @@ end
 
 -- Create border rects for a surface
 local function create_border(surface, color_rgba)
-    if not surface.scene_tree then return end
-
-    local tree = surface.scene_tree
+    local tree = surface and surface:scene_tree()
+    if not tree then return end
     local color = premultiply(color_rgba)
 
     -- Create 4 rect nodes as children of surface's scene tree
@@ -55,15 +54,10 @@ end
 local function update_border(surface, border_width)
     local b = surface._border
     if not b then return end
-    if not surface.scene_tree then return end
+    if not surface.scene_node or not surface:scene_node() then return end
 
     -- Get surface geometry
-    local geo = { width = 0, height = 0 }
-    if surface.role_obj and surface.role_obj.base then
-        local g = surface.role_obj.base.current.geometry
-        geo.width = g.width
-        geo.height = g.height
-    end
+    local geo = surface:geometry()
 
     if geo.width <= 0 or geo.height <= 0 then return end
 
