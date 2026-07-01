@@ -265,17 +265,29 @@ end
 
 -- Get output dimensions
 function output_service:get_output_dimensions(wlr_output)
+    local function effective_dimensions(output_ptr)
+        if output_ptr and wl.roots.output_effective_resolution then
+            local width = ffi.new("int[1]")
+            local height = ffi.new("int[1]")
+            wl.roots.output_effective_resolution(output_ptr, width, height)
+            if width[0] > 0 and height[0] > 0 then
+                return width[0], height[0]
+            end
+        end
+        return nil, nil
+    end
+
     -- Find the output in our list
     for _, output in ipairs(self.outputs) do
         if output.wlr_output == wlr_output then
-            local width = output.wlr_output.width
-            local height = output.wlr_output.height
-            return width, height
+            local width, height = effective_dimensions(output.wlr_output)
+            return width or output.wlr_output.width, height or output.wlr_output.height
         end
     end
     -- If passed an output object directly
     if wlr_output.width then
-        return wlr_output.width, wlr_output.height
+        local width, height = effective_dimensions(wlr_output)
+        return width or wlr_output.width, height or wlr_output.height
     end
     return nil, nil
 end

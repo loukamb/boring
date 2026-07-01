@@ -199,6 +199,11 @@ function layout_service:on_window_remove(surface)
     local monitor_state = surface._monitor_state
     if not monitor_state then return end
 
+    if monitor_state.fullscreen_surface == surface then
+        monitor_state.fullscreen_surface = nil
+        surface._pre_fullscreen = nil
+    end
+
     -- Remove from windows list
     for i, w in ipairs(monitor_state.windows) do
         if w == surface then
