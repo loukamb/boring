@@ -13,6 +13,7 @@ local output_service = require("compositor.services.output")
 local surface_service = require("compositor.services.surface")
 
 local MOD_MAP = {
+    Caps = wl.WLR_MODIFIER_CAPS,
     Ctrl = wl.WLR_MODIFIER_CTRL,
     Control = wl.WLR_MODIFIER_CTRL,
     Alt = wl.WLR_MODIFIER_ALT,
@@ -25,6 +26,12 @@ local MOD_MAP = {
     Mod5 = wl.WLR_MODIFIER_MOD5,  -- Usually unmapped or ISO_Level3_Shift
     Hyper = wl.WLR_MODIFIER_MOD3, -- Alias for Mod3
 }
+
+local IGNORED_LOCK_MODIFIERS = bit.bor(wl.WLR_MODIFIER_CAPS, wl.WLR_MODIFIER_MOD2)
+
+local function normalize_modifiers(modifiers)
+    return bit.band(modifiers or 0, bit.bnot(IGNORED_LOCK_MODIFIERS))
+end
 
 local function parse_shortcut(shortcut_str)
     local parts = {}
@@ -103,8 +110,9 @@ end
 
 -- Check if a shortcut string is a mouse shortcut
 local function is_mouse_shortcut(shortcut_str)
-    for key, _ in pairs(MOUSE_BUTTON_MAP) do
-        if shortcut_str:find(key) then
+    for part in shortcut_str:gmatch("[^+]+") do
+        local trimmed = part:match("^%s*(.-)%s*$")
+        if MOUSE_BUTTON_MAP[trimmed] then
             return true
         end
     end
@@ -168,8 +176,9 @@ local input_service = {
 -- Find a matching mouse shortcut for the given event
 -- Returns the action if found, nil otherwise
 local function find_mouse_shortcut(modifiers, event_type, button)
+    modifiers = normalize_modifiers(modifiers)
     for _, shortcut in ipairs(input_service.mouse_shortcuts) do
-        if shortcut.modifiers == modifiers and
+        if normalize_modifiers(shortcut.modifiers) == modifiers and
             shortcut.event == event_type and
             (shortcut.button == nil or shortcut.button == button) then
             return shortcut.action, shortcut.shortcut_str
@@ -201,7 +210,7 @@ local function keyboard_handle_modifiers(listener, data)
     wl.roots.seat_keyboard_notify_modifiers(input_service.seat, keyboard.wlr_keyboard.modifiers)
 
     -- Track current modifier state for mouse handlers
-    input_service.current_modifiers = wl.roots.keyboard_get_modifiers(keyboard.wlr_keyboard)
+    input_service.current_modifiers = normalize_modifiers(wl.roots.keyboard_get_modifiers(keyboard.wlr_keyboard))
 end
 
 local function handle_config_shortcuts(keyboard, modifiers, sym)
@@ -211,7 +220,7 @@ local function handle_config_shortcuts(keyboard, modifiers, sym)
 
     for shortcut_str, callback in pairs(keyboard.shortcuts) do
         local req_mods, req_sym = parse_shortcut(shortcut_str)
-        if req_sym and req_sym == sym and modifiers == req_mods then
+        if req_sym and req_sym == sym and normalize_modifiers(modifiers) == normalize_modifiers(req_mods) then
             if type(callback) == "function" then
                 local ok, err = pcall(callback)
                 if not ok then
@@ -267,7 +276,7 @@ local function keyboard_handle_key(listener, data)
     local nsyms = wl.xkb.state_key_get_syms(keyboard.wlr_keyboard.xkb_state, keycode, syms)
 
     local handled = false
-    local modifiers = wl.roots.keyboard_get_modifiers(keyboard.wlr_keyboard)
+    local modifiers = normalize_modifiers(wl.roots.keyboard_get_modifiers(keyboard.wlr_keyboard))
 
     if event.state == wl.WL_KEYBOARD_KEY_STATE_PRESSED then
         for i = 0, nsyms - 1 do
@@ -744,6 +753,12 @@ local function server_cursor_axis(listener, data)
     local event = ffi.cast("struct wlr_pointer_axis_event*", data)
     local modifiers = input_service.current_modifiers
 
+    if event.delta == 0 then
+        wl.roots.seat_pointer_notify_axis(input_service.seat, event.time_msec, event.orientation,
+            event.delta, event.delta_discrete, event.source, event.relative_direction)
+        return
+    end
+
     -- Check for scroll shortcuts
     local action, shortcut_str = find_mouse_shortcut(modifiers, MOUSE_EVENT_SCROLL, nil)
     if action then
@@ -962,5 +977,13 @@ function input_service:shutdown()
         self.cursor = nil
     end
 end
+
+input_service._private = {
+    MOD_MAP = MOD_MAP,
+    parse_shortcut = parse_shortcut,
+    parse_mouse_shortcut = parse_mouse_shortcut,
+    is_mouse_shortcut = is_mouse_shortcut,
+    normalize_modifiers = normalize_modifiers,
+}
 
 return input_service
