@@ -1,18 +1,45 @@
 local xml = {}
 
+local function decode_entities(value)
+    return (value:gsub("&lt;", "<")
+        :gsub("&gt;", ">")
+        :gsub("&amp;", "&")
+        :gsub("&quot;", '"')
+        :gsub("&apos;", "'"))
+end
+
 local function parse_attributes(attr_str)
     local attrs = {}
     for name, value in attr_str:gmatch('([%w_-]+)%s*=%s*"([^"]*)"') do
-        attrs[name] = value
+        attrs[name] = decode_entities(value)
     end
     for name, value in attr_str:gmatch("([%w_-]+)%s*=%s*'([^']*)'") do
-        attrs[name] = value
+        attrs[name] = decode_entities(value)
     end
     return attrs
 end
 
 local function trim(s)
     return s:match("^%s*(.-)%s*$")
+end
+
+local function find_tag_end(text, start_pos)
+    local quote = nil
+    local i = start_pos + 1
+    while i <= #text do
+        local c = text:sub(i, i)
+        if quote then
+            if c == quote then
+                quote = nil
+            end
+        elseif c == '"' or c == "'" then
+            quote = c
+        elseif c == ">" then
+            return i
+        end
+        i = i + 1
+    end
+    return nil
 end
 
 function xml.parse(text, handlers)
@@ -27,7 +54,7 @@ function xml.parse(text, handlers)
         if start_pos > pos then
             local content = trim(text:sub(pos, start_pos - 1))
             if content ~= "" and handlers.text then
-                handlers.text(content)
+                handlers.text(decode_entities(content))
             end
         end
 
@@ -64,7 +91,7 @@ function xml.parse(text, handlers)
                 break
             end
         elseif text:sub(start_pos + 1, start_pos + 1) == "/" then
-            local end_pos = text:find(">", start_pos + 2)
+            local end_pos = find_tag_end(text, start_pos)
             if end_pos then
                 local tag = trim(text:sub(start_pos + 2, end_pos - 1))
                 if handlers.end_element then
@@ -75,7 +102,7 @@ function xml.parse(text, handlers)
                 break
             end
         else
-            local end_pos = text:find(">", start_pos + 1)
+            local end_pos = find_tag_end(text, start_pos)
             if end_pos then
                 local tag_content = text:sub(start_pos + 1, end_pos - 1)
                 local self_closing = tag_content:sub(-1) == "/"
