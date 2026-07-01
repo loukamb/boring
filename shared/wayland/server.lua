@@ -13,9 +13,9 @@ local ffi = base.ffi
 local lib = clib.new()
     :cache("server")
     :soname("wayland-server")
-    :soname("wlroots-0.19")
+    :soname("wlroots-0.20")
     :soname("xkbcommon")
-    :package("pixman-1", "wlroots-0.19", "wayland-server", "xkbcommon")
+    :package("pixman-1", "wlroots-0.20", "wayland-server", "xkbcommon")
     :define("WLR_USE_UNSTABLE", "")
     :include("<wlr/util/log.h>")
     :include("<time.h>")
@@ -65,17 +65,17 @@ local lib = clib.new()
     :variable("DIR", "$(mktemp -d)")
     :shell('trap "rm -rf $DIR" EXIT')
     :shell(
-        'wayland-scanner server-header /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml "$DIR/xdg-shell-protocol.h" 2>/dev/null')
+        'wayland-scanner server-header /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml "$DIR/xdg-shell-protocol.h"')
     :shell(
-        'wayland-scanner server-header /usr/share/wlr-protocols/unstable/wlr-layer-shell-unstable-v1.xml "$DIR/wlr-layer-shell-unstable-v1-protocol.h" 2>/dev/null')
+        'wayland-scanner server-header /usr/share/wlr-protocols/unstable/wlr-layer-shell-unstable-v1.xml "$DIR/wlr-layer-shell-unstable-v1-protocol.h"')
     :shell(
-        'wayland-scanner server-header /usr/share/wayland-protocols/staging/cursor-shape/cursor-shape-v1.xml "$DIR/cursor-shape-v1-protocol.h" 2>/dev/null')
+        'wayland-scanner server-header /usr/share/wayland-protocols/staging/cursor-shape/cursor-shape-v1.xml "$DIR/cursor-shape-v1-protocol.h"')
     :shell(
-        'wayland-scanner server-header /usr/share/wayland-protocols/unstable/pointer-constraints/pointer-constraints-unstable-v1.xml "$DIR/pointer-constraints-unstable-v1-protocol.h" 2>/dev/null')
+        'wayland-scanner server-header /usr/share/wayland-protocols/unstable/pointer-constraints/pointer-constraints-unstable-v1.xml "$DIR/pointer-constraints-unstable-v1-protocol.h"')
     :shell(
-        'wayland-scanner server-header /usr/share/wayland-protocols/unstable/xdg-decoration/xdg-decoration-unstable-v1.xml "$DIR/xdg-decoration-unstable-v1-protocol.h" 2>/dev/null')
+        'wayland-scanner server-header /usr/share/wayland-protocols/unstable/xdg-decoration/xdg-decoration-unstable-v1.xml "$DIR/xdg-decoration-unstable-v1-protocol.h"')
     :shell(
-        'wayland-scanner server-header /usr/share/wayland-protocols/unstable/relative-pointer/relative-pointer-unstable-v1.xml "$DIR/relative-pointer-unstable-v1-protocol.h" 2>/dev/null')
+        'wayland-scanner server-header /usr/share/wayland-protocols/unstable/relative-pointer/relative-pointer-unstable-v1.xml "$DIR/relative-pointer-unstable-v1-protocol.h"')
     :cdef([[
 typedef int pid_t;
 pid_t fork(void);
@@ -221,6 +221,7 @@ setmetatable(wayland, {
         local full_name = "wl_" .. key
         local ok, fn = pcall(function() return lib[full_name] end)
         if ok and fn ~= nil then
+            rawset(wayland, key, fn)
             return fn
         end
         -- Fall back to base module
@@ -267,6 +268,10 @@ wayland.WLR_INPUT_DEVICE_SWITCH = 5
 wayland.WLR_SCENE_NODE_TREE = 0
 wayland.WLR_SCENE_NODE_RECT = 1
 wayland.WLR_SCENE_NODE_BUFFER = 2
+
+wayland.WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_NONE = 0
+wayland.WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE = 1
+wayland.WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE = 2
 
 wayland.WLR_DEBUG = 0
 wayland.WLR_INFO = 1
@@ -377,7 +382,10 @@ wayland.roots = setmetatable({}, {
     __index = function(_, key)
         local full_name = "wlr_" .. key
         local ok, fn = pcall(function() return lib[full_name] end)
-        if ok and fn then return fn end
+        if ok and fn then
+            rawset(wayland.roots, key, fn)
+            return fn
+        end
         return nil
     end
 })
@@ -387,7 +395,10 @@ wayland.xkb = setmetatable({}, {
     __index = function(_, key)
         local full_name = "xkb_" .. key
         local ok, fn = pcall(function() return lib[full_name] end)
-        if ok and fn then return fn end
+        if ok and fn then
+            rawset(wayland.xkb, key, fn)
+            return fn
+        end
         return nil
     end
 })
@@ -397,7 +408,10 @@ wayland.libinput = setmetatable({}, {
     __index = function(_, key)
         local full_name = "libinput_" .. key
         local ok, fn = pcall(function() return ffi.C[full_name] end)
-        if ok and fn then return fn end
+        if ok and fn then
+            rawset(wayland.libinput, key, fn)
+            return fn
+        end
         return nil
     end
 })
@@ -433,6 +447,9 @@ function wayland.list_insert(pos, entry)
 end
 
 function wayland.list_remove(entry)
+    if entry == nil or entry == ffi.NULL or entry.prev == nil or entry.prev == ffi.NULL then
+        return
+    end
     entry.prev.next = entry.next
     entry.next.prev = entry.prev
     entry.prev = nil
@@ -663,6 +680,35 @@ function wayland.create_listener(fn)
     listener_arr[0].notify = wayland.persistent_callback("wl_notify_func_t", fn)
     table.insert(wayland._prevent_gc, listener_arr)
     return listener_arr
+end
+
+function wayland.destroy_listener(listener)
+    if not listener or listener == ffi.NULL then
+        return
+    end
+
+    local listener_arr = listener
+    local listener_ptr = listener
+    if ffi.istype("struct wl_listener[1]", listener) then
+        listener_ptr = listener[0]
+    end
+
+    wayland.list_remove(listener_ptr.link)
+
+    local callback = listener_ptr.notify
+    for i = #wayland._prevent_gc, 1, -1 do
+        local item = wayland._prevent_gc[i]
+        if item == listener_arr or item == callback then
+            table.remove(wayland._prevent_gc, i)
+        end
+    end
+
+    if callback and callback ~= ffi.NULL then
+        pcall(function()
+            callback:free()
+        end)
+    end
+    listener_ptr.notify = nil
 end
 
 function wayland.new_listener(callback, user_data)

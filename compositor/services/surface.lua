@@ -68,6 +68,23 @@ local surface_service = {
     hooks = hooks_mod.new(),
 }
 
+local function cleanup_registered_listener(listener, current_listener)
+    if not listener then
+        return
+    end
+
+    local listener_ptr = ffi.cast("struct wl_listener*", listener)
+    local current_ptr = current_listener and ffi.cast("struct wl_listener*", current_listener) or nil
+    local is_current = current_ptr and wl.ptr_to_num(listener_ptr) == wl.ptr_to_num(current_ptr)
+
+    if is_current then
+        wl.list_remove(listener[0].link)
+    else
+        wl.destroy_listener(listener)
+    end
+    surface_service.listener_registry:remove(listener)
+end
+
 --------------------------------------------------------------------------------
 -- Surface Lifecycle: The "Upgrade" Pattern
 --------------------------------------------------------------------------------
@@ -431,18 +448,16 @@ local function xdg_toplevel_destroy(listener, data)
     if not toplevel then return end
 
     -- Remove all listeners FIRST before wlroots destroys the toplevel
-    wl.list_remove(toplevel.map_listener[0].link)
-    wl.list_remove(toplevel.unmap_listener[0].link)
-    wl.list_remove(toplevel.commit_listener[0].link)
-    wl.list_remove(toplevel.destroy_listener[0].link)
-    wl.list_remove(toplevel.request_move_listener[0].link)
-    wl.list_remove(toplevel.request_resize_listener[0].link)
-    wl.list_remove(toplevel.request_maximize_listener[0].link)
-    wl.list_remove(toplevel.request_fullscreen_listener[0].link)
-    wl.list_remove(toplevel.set_title_listener[0].link)
-    wl.list_remove(toplevel.set_app_id_listener[0].link)
-    wl.list_remove(toplevel.new_subsurface_listener[0].link)
-
+    cleanup_registered_listener(toplevel.map_listener, listener)
+    cleanup_registered_listener(toplevel.unmap_listener, listener)
+    cleanup_registered_listener(toplevel.commit_listener, listener)
+    cleanup_registered_listener(toplevel.destroy_listener, listener)
+    cleanup_registered_listener(toplevel.request_move_listener, listener)
+    cleanup_registered_listener(toplevel.request_resize_listener, listener)
+    cleanup_registered_listener(toplevel.request_maximize_listener, listener)
+    cleanup_registered_listener(toplevel.request_fullscreen_listener, listener)
+    cleanup_registered_listener(toplevel.set_title_listener, listener)
+    cleanup_registered_listener(toplevel.set_app_id_listener, listener)
     local wlr_surface = toplevel.xdg_toplevel.base.surface
     local surface = surface_service:get_surface(wlr_surface)
 
@@ -563,74 +578,6 @@ local function xdg_toplevel_request_fullscreen(listener, data)
     end
 end
 
---------------------------------------------------------------------------------
--- Subsurface Tracking for CSD Rendering
---------------------------------------------------------------------------------
-
--- Handle subsurface commit
-local function subsurface_commit(listener, data)
-    local subsurface_data = surface_service.listener_registry:get(listener)
-    if not subsurface_data then return end
-
-    local wlr_subsurface = subsurface_data.wlr_subsurface
-
-    -- Update position from subsurface current state
-    subsurface_data.x = wlr_subsurface.current.x
-    subsurface_data.y = wlr_subsurface.current.y
-end
-
--- Handle subsurface destroy
-local function subsurface_destroy(listener, data)
-    local subsurface_data = surface_service.listener_registry:get(listener)
-    if not subsurface_data then return end
-
-    -- Remove from parent's subsurface list
-    local parent_surface = subsurface_data.parent_surface
-    if parent_surface and parent_surface._subsurfaces then
-        for i, sub in ipairs(parent_surface._subsurfaces) do
-            if sub == subsurface_data then
-                table.remove(parent_surface._subsurfaces, i)
-                break
-            end
-        end
-    end
-
-    -- Clean up listeners
-    wl.list_remove(subsurface_data.commit_listener[0].link)
-    wl.list_remove(subsurface_data.destroy_listener[0].link)
-
-    surface_service.listener_registry:remove(subsurface_data.commit_listener)
-    surface_service.listener_registry:remove(subsurface_data.destroy_listener)
-end
-
--- Handle new subsurface on a toplevel
-local function toplevel_new_subsurface(listener, data)
-    local toplevel = surface_service.listener_registry:get(listener)
-    if not toplevel or not toplevel.surface then return end
-
-    local wlr_subsurface = ffi.cast("struct wlr_subsurface*", data)
-    local wlr_surface = wlr_subsurface.surface
-
-    -- Create subsurface tracking data
-    local subsurface_data = {
-        wlr_subsurface = wlr_subsurface,
-        wlr_surface = wlr_surface,
-        parent_surface = toplevel.surface,
-        x = wlr_subsurface.current.x,
-        y = wlr_subsurface.current.y,
-    }
-
-    -- Listen for subsurface commits to update texture
-    subsurface_data.commit_listener = wl.create_listener(subsurface_commit)
-    surface_service.listener_registry:set(subsurface_data.commit_listener, subsurface_data)
-    wl.signal_add(wlr_surface.events.commit, subsurface_data.commit_listener)
-
-    -- Listen for subsurface destroy
-    subsurface_data.destroy_listener = wl.create_listener(subsurface_destroy)
-    surface_service.listener_registry:set(subsurface_data.destroy_listener, subsurface_data)
-    wl.signal_add(wlr_subsurface.events.destroy, subsurface_data.destroy_listener)
-end
-
 -- Handle new XDG toplevel
 local function server_new_xdg_toplevel(listener, data)
     local xdg_toplevel = ffi.cast("struct wlr_xdg_toplevel*", data)
@@ -683,11 +630,6 @@ local function server_new_xdg_toplevel(listener, data)
     surface_service.listener_registry:set(toplevel.request_fullscreen_listener, toplevel)
     wl.signal_add(xdg_toplevel.events.request_fullscreen, toplevel.request_fullscreen_listener)
 
-    -- Listen for new subsurfaces (for CSD tracking)
-    toplevel.new_subsurface_listener = wl.create_listener(toplevel_new_subsurface)
-    surface_service.listener_registry:set(toplevel.new_subsurface_listener, toplevel)
-    wl.signal_add(wlr_surface.events.new_subsurface, toplevel.new_subsurface_listener)
-
     -- Listen for title and app_id changes (for foreign toplevel protocol)
     toplevel.set_title_listener = wl.create_listener(xdg_toplevel_set_title)
     surface_service.listener_registry:set(toplevel.set_title_listener, toplevel)
@@ -718,8 +660,8 @@ local function xdg_popup_destroy(listener, data)
     if not popup then return end
 
     -- Remove listeners before wlroots destroys the popup
-    wl.list_remove(popup.commit_listener[0].link)
-    wl.list_remove(popup.destroy_listener[0].link)
+    cleanup_registered_listener(popup.commit_listener, listener)
+    cleanup_registered_listener(popup.destroy_listener, listener)
 end
 
 -- Handle new XDG popup
@@ -746,6 +688,18 @@ local function server_new_xdg_popup(listener, data)
     popup.destroy_listener = wl.create_listener(xdg_popup_destroy)
     surface_service.listener_registry:set(popup.destroy_listener, popup)
     wl.signal_add(xdg_popup.events.destroy, popup.destroy_listener)
+end
+
+local function server_new_toplevel_decoration(listener, data)
+    local decoration = ffi.cast("struct wlr_xdg_toplevel_decoration_v1*", data)
+    if decoration == nil or decoration == ffi.NULL then
+        return
+    end
+
+    wl.roots.xdg_toplevel_decoration_v1_set_mode(
+        decoration,
+        wl.WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE
+    )
 end
 
 --------------------------------------------------------------------------------
@@ -846,10 +800,10 @@ local function layer_surface_destroy(listener, data)
     local layer_data = surface_service.listener_registry:get(listener)
     if not layer_data then return end
 
-    wl.list_remove(layer_data.map_listener[0].link)
-    wl.list_remove(layer_data.unmap_listener[0].link)
-    wl.list_remove(layer_data.commit_listener[0].link)
-    wl.list_remove(layer_data.destroy_listener[0].link)
+    cleanup_registered_listener(layer_data.map_listener, listener)
+    cleanup_registered_listener(layer_data.unmap_listener, listener)
+    cleanup_registered_listener(layer_data.commit_listener, listener)
+    cleanup_registered_listener(layer_data.destroy_listener, listener)
 end
 
 local function server_new_layer_surface(listener, data)
@@ -967,6 +921,11 @@ function surface_service:init()
     -- Create XDG decoration manager (Phase 2 - Easy)
     self.xdg_decoration_manager = wl.roots.xdg_decoration_manager_v1_create(core_service:get_display())
     if self.xdg_decoration_manager and self.xdg_decoration_manager ~= ffi.NULL then
+        self.listeners.new_toplevel_decoration = wl.create_listener(server_new_toplevel_decoration)
+        wl.signal_add(
+            self.xdg_decoration_manager.events.new_toplevel_decoration,
+            self.listeners.new_toplevel_decoration
+        )
         proto.implement("zxdg_decoration_manager_v1")
         proto.implement("zxdg_toplevel_decoration_v1")
     end

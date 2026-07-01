@@ -93,8 +93,8 @@ local function create_unmanaged(xsurface)
     end)
 
     surface.listeners.dissociate = wl.create_listener(function(listener, data)
-        wl.list_remove(surface.listeners.map)
-        wl.list_remove(surface.listeners.unmap)
+        wl.list_remove(surface.listeners.map[0].link)
+        wl.list_remove(surface.listeners.unmap[0].link)
     end)
 
     wl.signal_add(xsurface.events.associate, surface.listeners.associate)
@@ -286,7 +286,7 @@ local function create_managed(xsurface)
     -- Handle destroy
     surface.listeners.destroy = wl.create_listener(function(listener, data)
         if surface.mapped then
-            surface.listeners.unmap.notify(surface.listeners.unmap, nil)
+            surface.listeners.unmap[0].notify(surface.listeners.unmap, nil)
         end
 
         for _, l in pairs(surface.listeners) do
@@ -314,9 +314,9 @@ local function create_managed(xsurface)
     end)
 
     surface.listeners.dissociate = wl.create_listener(function(listener, data)
-        wl.list_remove(surface.listeners.map)
-        wl.list_remove(surface.listeners.unmap)
-        wl.list_remove(surface.listeners.commit)
+        wl.list_remove(surface.listeners.map[0].link)
+        wl.list_remove(surface.listeners.unmap[0].link)
+        wl.list_remove(surface.listeners.commit[0].link)
     end)
 
     wl.signal_add(xsurface.events.associate, surface.listeners.associate)

@@ -146,6 +146,25 @@ local function get_pkg_config_cflags(packages)
     return flags
 end
 
+local function get_pkg_config_modversions(packages)
+    if not packages or #packages == 0 then
+        return ""
+    end
+
+    local versions = {}
+    for _, pkg in ipairs(packages) do
+        local handle = io.popen("pkg-config --modversion " .. pkg .. " 2>/dev/null")
+        local version = handle and handle:read("*l") or nil
+        local ok = handle and handle:close()
+        table.insert(versions, pkg .. "=" .. (ok and version or "missing"))
+    end
+    return table.concat(versions, "\n")
+end
+
+local function shell_quote(value)
+    return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
+end
+
 --------------------------------------------------------------------------------
 -- Builder class
 --------------------------------------------------------------------------------
@@ -299,11 +318,14 @@ function Builder:_generate_cdef()
         extra_includes = '-I"$DIR"'
     end
 
+    local err_path = os.tmpname()
     local gcc_cmd = string.format(
-        [[%sgcc -E -P -x c - %s %s -I/usr/include 2>/dev/null <<'EOF'
+        [[set -e
+exec 2>%s
+%sgcc -E -P -x c - %s %s -I/usr/include <<'EOF'
 %s
 EOF
-]], setup_cmd, pkg_cflags, extra_includes, headers_str)
+]], shell_quote(err_path), setup_cmd, pkg_cflags, extra_includes, headers_str)
 
 
     local handle = io.popen(gcc_cmd)
@@ -311,10 +333,20 @@ EOF
         error("clib: Failed to run gcc preprocessor")
     end
     local preprocessed = handle:read("*a")
-    handle:close()
+    local ok, reason, status = handle:close()
+    local err_file = io.open(err_path, "r")
+    local stderr = err_file and err_file:read("*a") or ""
+    if err_file then
+        err_file:close()
+    end
+    os.remove(err_path)
+
+    if not ok then
+        error(string.format("clib: Preprocessor failed (%s %s): %s", tostring(reason), tostring(status), stderr))
+    end
 
     if not preprocessed or preprocessed == "" then
-        error("clib: Preprocessor produced no output")
+        error("clib: Preprocessor produced no output" .. (stderr ~= "" and (": " .. stderr) or ""))
     end
 
 
@@ -439,6 +471,10 @@ function Builder:build()
         local hash_mod = require("shared.hash")
         local hash_input = table.concat(self._includes, "\n") .. "\n" ..
             table.concat(self._defines, "\n") .. "\n" ..
+            table.concat(self._packages, "\n") .. "\n" ..
+            get_pkg_config_cflags(self._packages) .. "\n" ..
+            get_pkg_config_modversions(self._packages) .. "\n" ..
+            table.concat(self._variables, "\n") .. "\n" ..
             table.concat(self._extra_cdef, "\n") .. "\n" ..
             table.concat(self._shell_scripts, "\n")
         input_hash = hash_mod.short(hash_input)
@@ -517,12 +553,14 @@ function Builder:build()
             for _, lib in ipairs(self._libs) do
                 local ok, fn = pcall(function() return lib[key] end)
                 if ok and fn ~= nil then
+                    rawset(self, key, fn)
                     return fn
                 end
             end
             -- Fall back to ffi.C
             local ok, fn = pcall(function() return ffi.C[key] end)
             if ok then
+                rawset(self, key, fn)
                 return fn
             end
             return nil
