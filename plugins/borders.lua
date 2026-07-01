@@ -67,6 +67,16 @@ local function update_border(surface, border_width)
 
     if geo.width <= 0 or geo.height <= 0 then return end
 
+    local cache = surface._border_geometry
+    if cache and cache.width == geo.width and cache.height == geo.height and cache.border_width == border_width then
+        return
+    end
+    surface._border_geometry = {
+        width = geo.width,
+        height = geo.height,
+        border_width = border_width,
+    }
+
     -- Top: full width, at top edge
     wl.roots.scene_rect_set_size(b.top, geo.width + border_width * 2, border_width)
     wl.roots.scene_node_set_position(b.top.node, -border_width, -border_width)
@@ -108,6 +118,7 @@ local function destroy_border(surface)
         end
     end
     surface._border = nil
+    surface._border_geometry = nil
 end
 
 function plugin:mount(config)
@@ -161,5 +172,10 @@ function plugin:unmount()
     self._listeners = nil
     self._config = nil
 end
+
+plugin._private = {
+    parse_color = parse_color,
+    premultiply = premultiply,
+}
 
 return plugin
