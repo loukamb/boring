@@ -424,6 +424,64 @@ function wayland.persistent_callback(signature, fn)
     return base.persistent_callback(wayland, signature, fn)
 end
 
+local function remove_prevent_gc(item)
+    for i = #wayland._prevent_gc, 1, -1 do
+        if wayland._prevent_gc[i] == item then
+            table.remove(wayland._prevent_gc, i)
+        end
+    end
+end
+
+local listener_handles = {}
+
+local function listener_key(listener)
+    return wayland.ptr_to_num(listener)
+end
+
+local function clear_listener_notify(listener_ref)
+    if ffi.istype("struct wl_listener[1]", listener_ref) then
+        listener_ref[0].notify = nil
+    elseif listener_ref and listener_ref ~= ffi.NULL then
+        listener_ref.notify = nil
+    end
+end
+
+local function release_listener_handle(key, listener_arr, listener_ref, handle)
+    remove_prevent_gc(listener_arr)
+    remove_prevent_gc(handle.callback)
+
+    if handle.callback and handle.callback ~= ffi.NULL then
+        pcall(function()
+            handle.callback:free()
+        end)
+    end
+
+    clear_listener_notify(listener_ref)
+    handle.callback = nil
+    handle.destroyed = true
+    listener_handles[key] = nil
+end
+
+local function protected_notify(fn)
+    return function(listener, data)
+        local key = listener_key(listener)
+        local handle = listener_handles[key]
+        if handle then
+            handle.dispatching = (handle.dispatching or 0) + 1
+        end
+        local ok, err = xpcall(fn, debug.traceback, listener, data)
+        if handle then
+            handle.dispatching = handle.dispatching - 1
+            if handle.pending_destroy and handle.dispatching == 0 then
+                release_listener_handle(key, handle.listener_arr, listener, handle)
+            end
+        end
+        if not ok then
+            log.error("wl listener error: %s", tostring(err))
+        end
+    end
+end
+
 function wayland.offsetof(ctype, member)
     return ffi.offsetof(ctype, member)
 end
@@ -560,9 +618,17 @@ function Listener.new(callback, user_data)
     local self = setmetatable({}, Listener)
 
     self._listener_arr = ffi.new("struct wl_listener[1]")
-    self._callback = wayland.persistent_callback("wl_notify_func_t", callback)
+    self._callback = wayland.persistent_callback("wl_notify_func_t", protected_notify(callback))
     self._listener_arr[0].notify = self._callback
     self._user_data = user_data
+    self._destroyed = false
+    listener_handles[listener_key(self._listener_arr)] = {
+        callback = self._callback,
+        listener_arr = self._listener_arr,
+        owner = self,
+        destroyed = false,
+        dispatching = 0,
+    }
 
     table.insert(wayland._prevent_gc, self._listener_arr)
     table.insert(wayland._prevent_gc, self)
@@ -594,6 +660,28 @@ end
 
 function Listener:disconnect()
     wayland.list_remove(self._listener_arr[0].link)
+end
+
+function Listener:destroy()
+    if self._destroyed then
+        return
+    end
+    self:disconnect()
+    listener_registry:remove(self._listener_arr)
+    remove_prevent_gc(self._listener_arr)
+    remove_prevent_gc(self._callback)
+    remove_prevent_gc(self)
+    local key = listener_key(self._listener_arr)
+    local handle = listener_handles[key]
+    if handle and handle.dispatching and handle.dispatching > 0 then
+        handle.pending_destroy = true
+    else
+        release_listener_handle(key, self._listener_arr, self._listener_arr, handle or {
+            callback = self._callback,
+        })
+    end
+    self._callback = nil
+    self._destroyed = true
 end
 
 function Listener.from_ptr(listener_ptr)
@@ -677,13 +765,30 @@ wayland.ManagedList = ManagedList
 
 function wayland.create_listener(fn)
     local listener_arr = ffi.new("struct wl_listener[1]")
-    listener_arr[0].notify = wayland.persistent_callback("wl_notify_func_t", fn)
+    local callback = wayland.persistent_callback("wl_notify_func_t", protected_notify(fn))
+    listener_arr[0].notify = callback
+    listener_handles[listener_key(listener_arr)] = {
+        callback = callback,
+        listener_arr = listener_arr,
+        destroyed = false,
+        dispatching = 0,
+    }
     table.insert(wayland._prevent_gc, listener_arr)
     return listener_arr
 end
 
 function wayland.destroy_listener(listener)
     if not listener or listener == ffi.NULL then
+        return
+    end
+
+    if type(listener) == "table" and getmetatable(listener) == Listener then
+        listener:destroy()
+        return
+    end
+
+    local handle = listener_handles[listener_key(listener)]
+    if handle and handle.destroyed then
         return
     end
 
@@ -695,20 +800,16 @@ function wayland.destroy_listener(listener)
 
     wayland.list_remove(listener_ptr.link)
 
-    local callback = listener_ptr.notify
-    for i = #wayland._prevent_gc, 1, -1 do
-        local item = wayland._prevent_gc[i]
-        if item == listener_arr or item == callback then
-            table.remove(wayland._prevent_gc, i)
-        end
+    handle = listener_handles[listener_key(listener_arr)]
+    local callback = (handle and handle.callback) or listener_ptr.notify
+    remove_prevent_gc(listener_arr)
+    if handle and handle.dispatching and handle.dispatching > 0 then
+        handle.pending_destroy = true
+        return
     end
-
-    if callback and callback ~= ffi.NULL then
-        pcall(function()
-            callback:free()
-        end)
-    end
-    listener_ptr.notify = nil
+    release_listener_handle(listener_key(listener_arr), listener_arr, listener_arr, handle or {
+        callback = callback,
+    })
 end
 
 function wayland.new_listener(callback, user_data)
