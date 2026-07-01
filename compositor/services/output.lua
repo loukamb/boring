@@ -4,6 +4,7 @@
 local wl = require("shared.wayland.server")
 local proto = require("shared.wayland.registry")
 local state = require("compositor.state")
+local log = require("shared.log")
 local ffi = wl._ffi
 local event_emitter = require("shared.emitter")
 
@@ -58,6 +59,93 @@ local output_service = {
     initialized = false,
 }
 
+local function is_null(value)
+    return value == nil or value == ffi.NULL
+end
+
+local function find_output_mode(wlr_output, width, height, refresh_rate)
+    if not width or not height then
+        return nil
+    end
+
+    local modes = ffi.cast("struct wl_list*",
+        ffi.cast("char*", wlr_output) + wl.offsetof("struct wlr_output", "modes"))
+    local pos = modes.next
+    while pos ~= nil and pos ~= ffi.NULL and wl.ptr_to_num(pos) ~= wl.ptr_to_num(modes) do
+        local mode = wl.container_of(pos, "struct wlr_output_mode", "link")
+        if mode.width == width and mode.height == height then
+            if not refresh_rate or refresh_rate == 0 or mode.refresh == refresh_rate * 1000 then
+                return mode
+            end
+        end
+        pos = pos.next
+    end
+
+    return nil
+end
+
+local function set_configured_mode(output_state, wlr_output, config)
+    if config.mode == "preferred" or (not config.width and not config.height) then
+        local mode = wl.roots.output_preferred_mode(wlr_output)
+        if not is_null(mode) then
+            wl.roots.output_state_set_mode(output_state, mode)
+        end
+        return
+    end
+
+    if not config.width or not config.height then
+        return
+    end
+
+    local mode = find_output_mode(wlr_output, config.width, config.height, config.refresh_rate)
+    if mode then
+        wl.roots.output_state_set_mode(output_state, mode)
+        return
+    end
+
+    local refresh = config.refresh_rate and config.refresh_rate * 1000 or 0
+    wl.roots.output_state_set_custom_mode(output_state, config.width, config.height, refresh)
+end
+
+local function commit_output_state(wlr_output, output_state, output_name)
+    if wl.roots.output_test_state and not wl.roots.output_test_state(wlr_output, output_state) then
+        log.warn("Output state test failed for %s", output_name)
+        return false
+    end
+    if not wl.roots.output_commit_state(wlr_output, output_state) then
+        log.warn("Output state commit failed for %s", output_name)
+        return false
+    end
+    return true
+end
+
+local function commit_preferred_output_state(wlr_output, config, output_name)
+    local output_state = ffi.new("struct wlr_output_state")
+    wl.roots.output_state_init(output_state)
+    wl.roots.output_state_set_enabled(output_state, true)
+
+    local mode = wl.roots.output_preferred_mode(wlr_output)
+    if not is_null(mode) then
+        wl.roots.output_state_set_mode(output_state, mode)
+    end
+
+    if config.scale and config.scale > 0 then
+        wl.roots.output_state_set_scale(output_state, config.scale)
+    end
+
+    local ok = commit_output_state(wlr_output, output_state, output_name)
+    wl.roots.output_state_finish(output_state)
+    return ok
+end
+
+local function destroy_registered_listener(registry, listener)
+    if not listener then
+        return
+    end
+    registry:remove(listener)
+    wl.destroy_listener(listener)
+end
+
 -- Handle output frame event
 local function output_frame(listener, data)
     local output = output_service.registry:get(listener)
@@ -74,7 +162,9 @@ local function output_request_state(listener, data)
     if not output then return end
 
     local event = ffi.cast("const struct wlr_output_event_request_state*", data)
-    wl.roots.output_commit_state(output.wlr_output, event.state)
+    if not wl.roots.output_commit_state(output.wlr_output, event.state) then
+        log.warn("Requested output state commit failed for %s", output.name or "<unknown>")
+    end
 end
 
 -- Handle output destruction
@@ -87,10 +177,10 @@ local function output_destroy(listener, data)
     output_service.events:emit("output:destroy", output)
     output_service.events:emit("output:remove", output.wlr_output)
 
-    -- Remove listeners from their signals
-    wl.list_remove(output.frame_listener[0].link)
-    wl.list_remove(output.request_state_listener[0].link)
-    wl.list_remove(output.destroy_listener[0].link)
+    -- Remove listeners from their signals and callback roots
+    destroy_registered_listener(output_service.registry, output.frame_listener)
+    destroy_registered_listener(output_service.registry, output.request_state_listener)
+    destroy_registered_listener(output_service.registry, output.destroy_listener)
 
     -- Remove from outputs list
     for i, o in ipairs(output_service.outputs) do
@@ -100,10 +190,6 @@ local function output_destroy(listener, data)
         end
     end
 
-    -- Clean up registry entries
-    output_service.registry:remove(output.frame_listener)
-    output_service.registry:remove(output.request_state_listener)
-    output_service.registry:remove(output.destroy_listener)
 end
 
 local function server_new_output(listener, data)
@@ -120,10 +206,7 @@ local function server_new_output(listener, data)
     wl.roots.output_state_init(output_state)
     wl.roots.output_state_set_enabled(output_state, true)
 
-    local mode = wl.roots.output_preferred_mode(wlr_output)
-    if mode ~= nil and mode ~= ffi.NULL then
-        wl.roots.output_state_set_mode(output_state, mode)
-    end
+    set_configured_mode(output_state, wlr_output, config)
 
     if config.scale and config.scale > 0 then
         wl.roots.output_state_set_scale(output_state, config.scale)
@@ -141,12 +224,16 @@ local function server_new_output(listener, data)
         wl.roots.output_state_set_transform(output_state, transform)
     end
 
-    wl.roots.output_commit_state(wlr_output, output_state)
+    local committed = commit_output_state(wlr_output, output_state, output_name)
     wl.roots.output_state_finish(output_state)
+    if not committed then
+        commit_preferred_output_state(wlr_output, config, output_name)
+    end
 
     -- Create output tracking object
     local output = {
         wlr_output = wlr_output,
+        name = output_name,
     }
 
     -- Set up listeners
@@ -165,14 +252,23 @@ local function server_new_output(listener, data)
     table.insert(output_service.outputs, output)
 
     -- Add to output layout
-    local l_output = wl.roots.output_layout_add_auto(output_service.output_layout, wlr_output)
+    local l_output
+    if config.x ~= nil or config.y ~= nil then
+        l_output = wl.roots.output_layout_add(output_service.output_layout, wlr_output, config.x or 0, config.y or 0)
+    else
+        l_output = wl.roots.output_layout_add_auto(output_service.output_layout, wlr_output)
+    end
     output.layout_output = l_output
 
     -- If scene is available, create scene output
     if output_service.scene then
         local scene_output = wl.roots.scene_output_create(output_service.scene, wlr_output)
-        wl.roots.scene_output_layout_add_output(output_service.scene_layout, l_output, scene_output)
-        output.scene_output = scene_output
+        if not is_null(scene_output) and not is_null(l_output) then
+            wl.roots.scene_output_layout_add_output(output_service.scene_layout, l_output, scene_output)
+            output.scene_output = scene_output
+        else
+            log.warn("Failed to create scene output for %s", output_name)
+        end
     end
 
     -- Emit new_output event (also as output:add for plugins)
@@ -240,8 +336,12 @@ function output_service:set_scene(scene, scene_layout)
     for _, output in ipairs(self.outputs) do
         if not output.scene_output then
             local scene_output = wl.roots.scene_output_create(scene, output.wlr_output)
-            wl.roots.scene_output_layout_add_output(scene_layout, output.layout_output, scene_output)
-            output.scene_output = scene_output
+            if not is_null(scene_output) and not is_null(output.layout_output) then
+                wl.roots.scene_output_layout_add_output(scene_layout, output.layout_output, scene_output)
+                output.scene_output = scene_output
+            else
+                log.warn("Failed to create scene output for %s", output.name or "<unknown>")
+            end
         end
     end
 end
@@ -269,8 +369,8 @@ function output_service:get_output_dimensions(wlr_output)
         if output_ptr and wl.roots.output_effective_resolution then
             local width = ffi.new("int[1]")
             local height = ffi.new("int[1]")
-            wl.roots.output_effective_resolution(output_ptr, width, height)
-            if width[0] > 0 and height[0] > 0 then
+            local ok = pcall(wl.roots.output_effective_resolution, output_ptr, width, height)
+            if ok and width[0] > 0 and height[0] > 0 then
                 return width[0], height[0]
             end
         end
@@ -298,5 +398,10 @@ function output_service:get_output_position(wlr_output)
     wl.roots.output_layout_get_box(self.output_layout, wlr_output, box)
     return box.x, box.y
 end
+
+output_service._private = {
+    degrees_to_transform = degrees_to_transform,
+    find_output_mode = find_output_mode,
+}
 
 return output_service
