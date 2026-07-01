@@ -119,6 +119,29 @@ local function is_mouse_shortcut(shortcut_str)
     return false
 end
 
+local function resize_edges_to_cursor_name(edges)
+    if bit.band(edges, wl.WLR_EDGE_TOP) ~= 0 then
+        if bit.band(edges, wl.WLR_EDGE_LEFT) ~= 0 then
+            return "nw-resize"
+        elseif bit.band(edges, wl.WLR_EDGE_RIGHT) ~= 0 then
+            return "ne-resize"
+        end
+        return "n-resize"
+    elseif bit.band(edges, wl.WLR_EDGE_BOTTOM) ~= 0 then
+        if bit.band(edges, wl.WLR_EDGE_LEFT) ~= 0 then
+            return "sw-resize"
+        elseif bit.band(edges, wl.WLR_EDGE_RIGHT) ~= 0 then
+            return "se-resize"
+        end
+        return "s-resize"
+    elseif bit.band(edges, wl.WLR_EDGE_LEFT) ~= 0 then
+        return "w-resize"
+    elseif bit.band(edges, wl.WLR_EDGE_RIGHT) ~= 0 then
+        return "e-resize"
+    end
+    return "default"
+end
+
 -- Cursor modes
 local CURSOR_PASSTHROUGH = 0
 local CURSOR_MOVE = 1
@@ -197,6 +220,26 @@ local function get_listener_data(listener)
     return input_service.registry:get(listener)
 end
 
+local function update_seat_capabilities()
+    if not input_service.seat then
+        return
+    end
+
+    local caps = wl.WL_SEAT_CAPABILITY_POINTER
+    if #input_service.keyboards > 0 then
+        caps = bit.bor(caps, wl.WL_SEAT_CAPABILITY_KEYBOARD)
+    end
+    wl.roots.seat_set_capabilities(input_service.seat, caps)
+end
+
+local function destroy_keyboard_listener(listener)
+    if not listener then
+        return
+    end
+    input_service.registry:remove(listener)
+    wl.destroy_listener(listener)
+end
+
 --------------------------------------------------------------------------------
 -- Keyboard Handling
 --------------------------------------------------------------------------------
@@ -218,14 +261,13 @@ local function handle_config_shortcuts(keyboard, modifiers, sym)
         return false
     end
 
-    for shortcut_str, callback in pairs(keyboard.shortcuts) do
-        local req_mods, req_sym = parse_shortcut(shortcut_str)
-        if req_sym and req_sym == sym and normalize_modifiers(modifiers) == normalize_modifiers(req_mods) then
+    for _, shortcut in ipairs(keyboard.shortcuts) do
+        if shortcut.sym == sym and normalize_modifiers(modifiers) == normalize_modifiers(shortcut.mods) then
+            local callback = shortcut.callback
             if type(callback) == "function" then
                 local ok, err = pcall(callback)
                 if not ok then
                     log.error("Shortcut callback error: %s", tostring(err))
-                else
                 end
                 return true
             else
@@ -298,12 +340,26 @@ local function keyboard_handle_destroy(listener, data)
     local keyboard = get_listener_data(listener)
     if not keyboard then return end
 
+    if keyboard.mouse_shortcuts then
+        for i = #input_service.mouse_shortcuts, 1, -1 do
+            if input_service.mouse_shortcuts[i].keyboard == keyboard then
+                table.remove(input_service.mouse_shortcuts, i)
+            end
+        end
+        keyboard.mouse_shortcuts = nil
+    end
+
     for i, kb in ipairs(input_service.keyboards) do
         if kb == keyboard then
             table.remove(input_service.keyboards, i)
             break
         end
     end
+
+    destroy_keyboard_listener(keyboard.modifiers_listener)
+    destroy_keyboard_listener(keyboard.key_listener)
+    destroy_keyboard_listener(keyboard.destroy_listener)
+    update_seat_capabilities()
 end
 
 local function server_new_keyboard(device)
@@ -312,8 +368,14 @@ local function server_new_keyboard(device)
 
     local config = state.resolve_keyboard(device_name)
 
+    local keyboard = {
+        wlr_keyboard = wlr_keyboard,
+        device_name = device_name,
+        shortcuts = {},
+        mouse_shortcuts = {},
+    }
+
     -- Separate keyboard and mouse shortcuts
-    local keyboard_shortcuts = {}
     local all_shortcuts = config.shortcuts or {}
 
     for shortcut_str, action in pairs(all_shortcuts) do
@@ -321,25 +383,29 @@ local function server_new_keyboard(device)
             -- Parse and store mouse shortcut
             local mods, event_type, button = parse_mouse_shortcut(shortcut_str)
             if event_type then
-                table.insert(input_service.mouse_shortcuts, {
+                local shortcut = {
+                    keyboard = keyboard,
                     modifiers = mods,
                     event = event_type,
                     button = button,
                     action = action,
                     shortcut_str = shortcut_str,
-                })
+                }
+                table.insert(input_service.mouse_shortcuts, shortcut)
+                table.insert(keyboard.mouse_shortcuts, shortcut)
             end
         else
-            -- Keep keyboard shortcuts
-            keyboard_shortcuts[shortcut_str] = action
+            local mods, sym = parse_shortcut(shortcut_str)
+            if sym then
+                table.insert(keyboard.shortcuts, {
+                    mods = mods,
+                    sym = sym,
+                    callback = action,
+                    shortcut_str = shortcut_str,
+                })
+            end
         end
     end
-
-    local keyboard = {
-        wlr_keyboard = wlr_keyboard,
-        device_name = device_name,
-        shortcuts = keyboard_shortcuts,
-    }
 
     local context = wl.xkb.context_new(wl.XKB_CONTEXT_NO_FLAGS)
 
@@ -390,6 +456,7 @@ local function server_new_keyboard(device)
 
     wl.roots.seat_set_keyboard(input_service.seat, wlr_keyboard)
     table.insert(input_service.keyboards, keyboard)
+    update_seat_capabilities()
 end
 
 local function configure_libinput_pointer(device, config)
@@ -440,8 +507,8 @@ local function server_new_pointer(device)
 
     local backend = core_service:get_backend()
     local is_libinput = wl.roots.backend_is_libinput(backend)
-    if is_libinput then
-        assert(configure_libinput_pointer(device, config), "Failed to configure libinput pointer")
+    if is_libinput and not configure_libinput_pointer(device, config) then
+        log.warn("Skipping libinput pointer configuration for unsupported device: %s", device_name)
     end
 end
 
@@ -455,12 +522,7 @@ local function server_new_input(listener, data)
         server_new_pointer(device)
     end
 
-    -- Update seat capabilities
-    local caps = wl.WL_SEAT_CAPABILITY_POINTER
-    if #input_service.keyboards > 0 then
-        caps = bit.bor(caps, wl.WL_SEAT_CAPABILITY_KEYBOARD)
-    end
-    wl.roots.seat_set_capabilities(input_service.seat, caps)
+    update_seat_capabilities()
 end
 
 --------------------------------------------------------------------------------
@@ -604,13 +666,20 @@ local function is_double_click(x, y, button, time_msec)
         dx < DOUBLE_CLICK_DISTANCE and
         dy < DOUBLE_CLICK_DISTANCE
 
-    -- Update last click info
+    if is_double then
+        input_service.last_click_time = 0
+        input_service.last_click_x = 0
+        input_service.last_click_y = 0
+        input_service.last_click_button = 0
+        return true
+    end
+
     input_service.last_click_time = time_msec
     input_service.last_click_x = x
     input_service.last_click_y = y
     input_service.last_click_button = button
 
-    return is_double
+    return false
 end
 
 -- Handle cursor button
@@ -702,30 +771,8 @@ local function server_cursor_button(listener, data)
                     input_service.grabbed_surface = surface
                     input_service.resize_edges = edges
 
-                    -- Set appropriate resize cursor
-                    local cursor_name = "default"
-                    if bit.band(edges, wl.WLR_EDGE_TOP) ~= 0 then
-                        if bit.band(edges, wl.WLR_EDGE_LEFT) ~= 0 then
-                            cursor_name = "nw-resize"
-                        elseif bit.band(edges, wl.WLR_EDGE_RIGHT) ~= 0 then
-                            cursor_name = "ne-resize"
-                        else
-                            cursor_name = "n-resize"
-                        end
-                    elseif bit.band(edges, wl.WLR_EDGE_BOTTOM) ~= 0 then
-                        if bit.band(edges, wl.WLR_EDGE_LEFT) ~= 0 then
-                            cursor_name = "sw-resize"
-                        elseif bit.band(edges, wl.WLR_EDGE_RIGHT) ~= 0 then
-                            cursor_name = "se-resize"
-                        else
-                            cursor_name = "s-resize"
-                        end
-                    elseif bit.band(edges, wl.WLR_EDGE_LEFT) ~= 0 then
-                        cursor_name = "w-resize"
-                    elseif bit.band(edges, wl.WLR_EDGE_RIGHT) ~= 0 then
-                        cursor_name = "e-resize"
-                    end
-                    wl.roots.cursor_set_xcursor(input_service.cursor, input_service.cursor_mgr, cursor_name)
+                    wl.roots.cursor_set_xcursor(input_service.cursor, input_service.cursor_mgr,
+                        resize_edges_to_cursor_name(edges))
                 else
                     input_service:begin_interactive(surface, "resize", edges)
                 end
@@ -762,19 +809,7 @@ local function server_cursor_axis(listener, data)
     -- Check for scroll shortcuts
     local action, shortcut_str = find_mouse_shortcut(modifiers, MOUSE_EVENT_SCROLL, nil)
     if action then
-        -- Handle built-in zoom action
-        if action == "zoom" then
-            local layout_service = require("compositor.services.layout")
-            local cursor_x, cursor_y = input_service.cursor.x, input_service.cursor.y
-            local monitor_state = layout_service:get_monitor_state_at(cursor_x, cursor_y)
-
-            if monitor_state then
-                -- Positive delta = scroll down = zoom out, negative = zoom in
-                local zoom_delta = event.delta < 0 and 1 or -1
-                layout_service:zoom(monitor_state, zoom_delta, cursor_x, cursor_y)
-            end
-            return
-        elseif type(action) == "function" then
+        if type(action) == "function" then
             -- Pass scroll direction to the callback
             local direction = event.delta < 0 and 1 or -1
             local ok, err = pcall(action, direction)
@@ -984,6 +1019,15 @@ input_service._private = {
     parse_mouse_shortcut = parse_mouse_shortcut,
     is_mouse_shortcut = is_mouse_shortcut,
     normalize_modifiers = normalize_modifiers,
+    resize_edges_to_cursor_name = resize_edges_to_cursor_name,
+    is_double_click = is_double_click,
+    reset_double_click = function()
+        input_service.last_click_time = 0
+        input_service.last_click_x = 0
+        input_service.last_click_y = 0
+        input_service.last_click_button = 0
+    end,
+    update_seat_capabilities = update_seat_capabilities,
 }
 
 return input_service
