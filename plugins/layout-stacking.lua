@@ -185,15 +185,6 @@ function stacking:end_resize(monitor_state)
     st.mode = "none"
 end
 
---------------------------------------------------------------------------------
--- Viewport Operations (No-op for stacking)
---------------------------------------------------------------------------------
-
-function stacking:pan(monitor_state, dx, dy) end
-
-function stacking:zoom(monitor_state, delta, center_x, center_y) end
-
---------------------------------------------------------------------------------
 -- Fullscreen
 --------------------------------------------------------------------------------
 
@@ -202,14 +193,21 @@ function stacking:enter_fullscreen(monitor_state, surface)
         return false
     end
 
+    if monitor_state.fullscreen_surface and monitor_state.fullscreen_surface ~= surface then
+        self:exit_fullscreen(monitor_state)
+    end
+
+    local surface_service = require("compositor.services.surface")
+    local current_width, current_height = surface_service:get_surface_dimensions(surface)
     surface._pre_fullscreen = {
         x = surface.scene_tree.node.x,
         y = surface.scene_tree.node.y,
+        width = current_width,
+        height = current_height,
     }
 
-    local output = monitor_state.output
-    local width = output.wlr_output.width
-    local height = output.wlr_output.height
+    local output_service = require("compositor.services.output")
+    local width, height = output_service:get_output_dimensions(monitor_state.output.wlr_output)
 
     wl.roots.scene_node_set_position(surface.scene_tree.node, 0, 0)
     surface:set_size(width, height)
@@ -227,6 +225,9 @@ function stacking:exit_fullscreen(monitor_state)
     if surface._pre_fullscreen and surface.scene_tree then
         wl.roots.scene_node_set_position(surface.scene_tree.node,
             surface._pre_fullscreen.x, surface._pre_fullscreen.y)
+        if surface._pre_fullscreen.width > 0 and surface._pre_fullscreen.height > 0 then
+            surface:set_size(surface._pre_fullscreen.width, surface._pre_fullscreen.height)
+        end
     end
 
     surface._pre_fullscreen = nil

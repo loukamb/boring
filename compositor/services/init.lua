@@ -15,12 +15,9 @@ local render_service      = require("compositor.services.render")
 local wallpaper_processes = {}
 
 local function launch_wallpapers()
-    local monitors = state.config and state.config.monitors
-    if not monitors or not monitors.rules then
-        return
-    end
+    local rules = state.get_monitor_rules()
 
-    for i, rule in ipairs(monitors.rules) do
+    for i, rule in ipairs(rules) do
         if rule:is_enabled() and rule.background then
             local wallpaper_args = {}
             local name = rule.get_name and rule:get_name() or rule.name

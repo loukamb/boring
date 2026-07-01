@@ -6,6 +6,7 @@ local wl = require("shared.wayland.server")
 local proto = require("shared.wayland.registry")
 local events_mod = require("shared.events")
 local hooks_mod = require("shared.hook")
+local log = require("shared.log")
 local ffi = wl._ffi
 local bit = wl.bit
 
@@ -45,6 +46,7 @@ local surface_service = {
 
     -- Surface registry: Maps C pointer (wl_surface) -> Lua Surface Object
     registry = {},
+    layer_registry = {},
 
     -- Windows list: Surfaces that are currently "toplevels"
     windows = {},
@@ -67,6 +69,30 @@ local surface_service = {
     -- Hook system for plugin behavior overrides
     hooks = hooks_mod.new(),
 }
+
+local surface_at_sx = ffi.new("double[1]")
+local surface_at_sy = ffi.new("double[1]")
+
+local function is_null(value)
+    return value == nil or value == ffi.NULL
+end
+
+local function cleanup_registered_listener(listener, current_listener)
+    if not listener then
+        return
+    end
+
+    local listener_ptr = ffi.cast("struct wl_listener*", listener)
+    local current_ptr = current_listener and ffi.cast("struct wl_listener*", current_listener) or nil
+    local is_current = current_ptr and wl.ptr_to_num(listener_ptr) == wl.ptr_to_num(current_ptr)
+
+    if is_current then
+        wl.list_remove(listener[0].link)
+    else
+        wl.destroy_listener(listener)
+    end
+    surface_service.listener_registry:remove(listener)
+end
 
 --------------------------------------------------------------------------------
 -- Surface Lifecycle: The "Upgrade" Pattern
@@ -144,6 +170,22 @@ function surface_service:remove_surface(wlr_surface)
         self.scene_tree_registry:remove(surface.scene_tree)
     end
     self.registry[ptr_key] = nil
+end
+
+local function register_layer_surface(layer_data)
+    local layer_surface = layer_data.layer_surface
+    if is_null(layer_surface) or is_null(layer_surface.surface) then
+        return
+    end
+    surface_service.layer_registry[wl.ptr_to_num(layer_surface.surface)] = layer_data
+end
+
+local function unregister_layer_surface(layer_data)
+    local layer_surface = layer_data.layer_surface
+    if is_null(layer_surface) or is_null(layer_surface.surface) then
+        return
+    end
+    surface_service.layer_registry[wl.ptr_to_num(layer_surface.surface)] = nil
 end
 
 --------------------------------------------------------------------------------
@@ -247,8 +289,8 @@ function surface_service:surface_at(lx, ly)
     -- Note: wlr_scene_node_at returns coordinates in DISPLAYED space (scaled)
     -- We must convert back to native buffer coordinates for the client
 
-    local sx = ffi.new("double[1]")
-    local sy = ffi.new("double[1]")
+    local sx = surface_at_sx
+    local sy = surface_at_sy
 
     local node = wl.roots.scene_node_at(self.scene.tree.node, lx, ly, sx, sy)
 
@@ -431,18 +473,16 @@ local function xdg_toplevel_destroy(listener, data)
     if not toplevel then return end
 
     -- Remove all listeners FIRST before wlroots destroys the toplevel
-    wl.list_remove(toplevel.map_listener[0].link)
-    wl.list_remove(toplevel.unmap_listener[0].link)
-    wl.list_remove(toplevel.commit_listener[0].link)
-    wl.list_remove(toplevel.destroy_listener[0].link)
-    wl.list_remove(toplevel.request_move_listener[0].link)
-    wl.list_remove(toplevel.request_resize_listener[0].link)
-    wl.list_remove(toplevel.request_maximize_listener[0].link)
-    wl.list_remove(toplevel.request_fullscreen_listener[0].link)
-    wl.list_remove(toplevel.set_title_listener[0].link)
-    wl.list_remove(toplevel.set_app_id_listener[0].link)
-    wl.list_remove(toplevel.new_subsurface_listener[0].link)
-
+    cleanup_registered_listener(toplevel.map_listener, listener)
+    cleanup_registered_listener(toplevel.unmap_listener, listener)
+    cleanup_registered_listener(toplevel.commit_listener, listener)
+    cleanup_registered_listener(toplevel.destroy_listener, listener)
+    cleanup_registered_listener(toplevel.request_move_listener, listener)
+    cleanup_registered_listener(toplevel.request_resize_listener, listener)
+    cleanup_registered_listener(toplevel.request_maximize_listener, listener)
+    cleanup_registered_listener(toplevel.request_fullscreen_listener, listener)
+    cleanup_registered_listener(toplevel.set_title_listener, listener)
+    cleanup_registered_listener(toplevel.set_app_id_listener, listener)
     local wlr_surface = toplevel.xdg_toplevel.base.surface
     local surface = surface_service:get_surface(wlr_surface)
 
@@ -511,31 +551,8 @@ local function xdg_toplevel_request_resize(listener, data)
             input_service.grabbed_surface = surface
             input_service.resize_edges = event.edges
 
-            -- Set appropriate resize cursor
-            local cursor_name = "default"
-            local edges = event.edges
-            if bit.band(edges, wl.WLR_EDGE_TOP) ~= 0 then
-                if bit.band(edges, wl.WLR_EDGE_LEFT) ~= 0 then
-                    cursor_name = "nw-resize"
-                elseif bit.band(edges, wl.WLR_EDGE_RIGHT) ~= 0 then
-                    cursor_name = "ne-resize"
-                else
-                    cursor_name = "n-resize"
-                end
-            elseif bit.band(edges, wl.WLR_EDGE_BOTTOM) ~= 0 then
-                if bit.band(edges, wl.WLR_EDGE_LEFT) ~= 0 then
-                    cursor_name = "sw-resize"
-                elseif bit.band(edges, wl.WLR_EDGE_RIGHT) ~= 0 then
-                    cursor_name = "se-resize"
-                else
-                    cursor_name = "s-resize"
-                end
-            elseif bit.band(edges, wl.WLR_EDGE_LEFT) ~= 0 then
-                cursor_name = "w-resize"
-            elseif bit.band(edges, wl.WLR_EDGE_RIGHT) ~= 0 then
-                cursor_name = "e-resize"
-            end
-            wl.roots.cursor_set_xcursor(cursor, input_service.cursor_mgr, cursor_name)
+            wl.roots.cursor_set_xcursor(cursor, input_service.cursor_mgr,
+                input_service._private.resize_edges_to_cursor_name(event.edges))
         else
             -- Fall back to direct resize for stacking layout
             input_service:begin_interactive(surface, "resize", event.edges)
@@ -563,74 +580,6 @@ local function xdg_toplevel_request_fullscreen(listener, data)
     end
 end
 
---------------------------------------------------------------------------------
--- Subsurface Tracking for CSD Rendering
---------------------------------------------------------------------------------
-
--- Handle subsurface commit
-local function subsurface_commit(listener, data)
-    local subsurface_data = surface_service.listener_registry:get(listener)
-    if not subsurface_data then return end
-
-    local wlr_subsurface = subsurface_data.wlr_subsurface
-
-    -- Update position from subsurface current state
-    subsurface_data.x = wlr_subsurface.current.x
-    subsurface_data.y = wlr_subsurface.current.y
-end
-
--- Handle subsurface destroy
-local function subsurface_destroy(listener, data)
-    local subsurface_data = surface_service.listener_registry:get(listener)
-    if not subsurface_data then return end
-
-    -- Remove from parent's subsurface list
-    local parent_surface = subsurface_data.parent_surface
-    if parent_surface and parent_surface._subsurfaces then
-        for i, sub in ipairs(parent_surface._subsurfaces) do
-            if sub == subsurface_data then
-                table.remove(parent_surface._subsurfaces, i)
-                break
-            end
-        end
-    end
-
-    -- Clean up listeners
-    wl.list_remove(subsurface_data.commit_listener[0].link)
-    wl.list_remove(subsurface_data.destroy_listener[0].link)
-
-    surface_service.listener_registry:remove(subsurface_data.commit_listener)
-    surface_service.listener_registry:remove(subsurface_data.destroy_listener)
-end
-
--- Handle new subsurface on a toplevel
-local function toplevel_new_subsurface(listener, data)
-    local toplevel = surface_service.listener_registry:get(listener)
-    if not toplevel or not toplevel.surface then return end
-
-    local wlr_subsurface = ffi.cast("struct wlr_subsurface*", data)
-    local wlr_surface = wlr_subsurface.surface
-
-    -- Create subsurface tracking data
-    local subsurface_data = {
-        wlr_subsurface = wlr_subsurface,
-        wlr_surface = wlr_surface,
-        parent_surface = toplevel.surface,
-        x = wlr_subsurface.current.x,
-        y = wlr_subsurface.current.y,
-    }
-
-    -- Listen for subsurface commits to update texture
-    subsurface_data.commit_listener = wl.create_listener(subsurface_commit)
-    surface_service.listener_registry:set(subsurface_data.commit_listener, subsurface_data)
-    wl.signal_add(wlr_surface.events.commit, subsurface_data.commit_listener)
-
-    -- Listen for subsurface destroy
-    subsurface_data.destroy_listener = wl.create_listener(subsurface_destroy)
-    surface_service.listener_registry:set(subsurface_data.destroy_listener, subsurface_data)
-    wl.signal_add(wlr_subsurface.events.destroy, subsurface_data.destroy_listener)
-end
-
 -- Handle new XDG toplevel
 local function server_new_xdg_toplevel(listener, data)
     local xdg_toplevel = ffi.cast("struct wlr_xdg_toplevel*", data)
@@ -639,6 +588,9 @@ local function server_new_xdg_toplevel(listener, data)
 
     -- Create scene tree for this toplevel in the windows layer
     local scene_tree = wl.roots.scene_xdg_surface_create(surface_service.layers.windows, xdg_toplevel.base)
+    if is_null(scene_tree) then
+        return
+    end
     xdg_toplevel.base.data = scene_tree
 
     -- Upgrade the surface to a toplevel
@@ -683,11 +635,6 @@ local function server_new_xdg_toplevel(listener, data)
     surface_service.listener_registry:set(toplevel.request_fullscreen_listener, toplevel)
     wl.signal_add(xdg_toplevel.events.request_fullscreen, toplevel.request_fullscreen_listener)
 
-    -- Listen for new subsurfaces (for CSD tracking)
-    toplevel.new_subsurface_listener = wl.create_listener(toplevel_new_subsurface)
-    surface_service.listener_registry:set(toplevel.new_subsurface_listener, toplevel)
-    wl.signal_add(wlr_surface.events.new_subsurface, toplevel.new_subsurface_listener)
-
     -- Listen for title and app_id changes (for foreign toplevel protocol)
     toplevel.set_title_listener = wl.create_listener(xdg_toplevel_set_title)
     surface_service.listener_registry:set(toplevel.set_title_listener, toplevel)
@@ -718,8 +665,22 @@ local function xdg_popup_destroy(listener, data)
     if not popup then return end
 
     -- Remove listeners before wlroots destroys the popup
-    wl.list_remove(popup.commit_listener[0].link)
-    wl.list_remove(popup.destroy_listener[0].link)
+    cleanup_registered_listener(popup.commit_listener, listener)
+    cleanup_registered_listener(popup.destroy_listener, listener)
+end
+
+local function get_popup_parent_tree(xdg_popup)
+    local parent = wl.roots.xdg_surface_try_from_wlr_surface(xdg_popup.parent)
+    if not is_null(parent) and not is_null(parent.data) then
+        return ffi.cast("struct wlr_scene_tree*", parent.data)
+    end
+
+    local layer_data = surface_service.layer_registry[wl.ptr_to_num(xdg_popup.parent)]
+    if layer_data and not is_null(layer_data.scene_layer) and not is_null(layer_data.scene_layer.tree) then
+        return layer_data.scene_layer.tree
+    end
+
+    return nil
 end
 
 -- Handle new XDG popup
@@ -730,14 +691,16 @@ local function server_new_xdg_popup(listener, data)
         xdg_popup = xdg_popup,
     }
 
-    -- Get parent surface and tree
-    local parent = wl.roots.xdg_surface_try_from_wlr_surface(xdg_popup.parent)
-    if parent == nil or parent == ffi.NULL then
+    local parent_tree = get_popup_parent_tree(xdg_popup)
+    if is_null(parent_tree) then
         return
     end
 
-    local parent_tree = ffi.cast("struct wlr_scene_tree*", parent.data)
-    xdg_popup.base.data = wl.roots.scene_xdg_surface_create(parent_tree, xdg_popup.base)
+    local popup_tree = wl.roots.scene_xdg_surface_create(parent_tree, xdg_popup.base)
+    if is_null(popup_tree) then
+        return
+    end
+    xdg_popup.base.data = popup_tree
 
     popup.commit_listener = wl.create_listener(xdg_popup_commit)
     surface_service.listener_registry:set(popup.commit_listener, popup)
@@ -746,6 +709,18 @@ local function server_new_xdg_popup(listener, data)
     popup.destroy_listener = wl.create_listener(xdg_popup_destroy)
     surface_service.listener_registry:set(popup.destroy_listener, popup)
     wl.signal_add(xdg_popup.events.destroy, popup.destroy_listener)
+end
+
+local function server_new_toplevel_decoration(listener, data)
+    local decoration = ffi.cast("struct wlr_xdg_toplevel_decoration_v1*", data)
+    if decoration == nil or decoration == ffi.NULL then
+        return
+    end
+
+    wl.roots.xdg_toplevel_decoration_v1_set_mode(
+        decoration,
+        wl.WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE
+    )
 end
 
 --------------------------------------------------------------------------------
@@ -782,11 +757,9 @@ local function layer_surface_map(listener, data)
     end
 
     if output ~= nil and output ~= ffi.NULL then
-        local box = ffi.new("struct wlr_box")
-        wl.roots.output_layout_get_box(output_service:get_output_layout(), output, box)
-
-        local output_width = output.width > 0 and output.width or box.width
-        local output_height = output.height > 0 and output.height or box.height
+        local output_width, output_height = output_service:get_output_dimensions(output)
+        output_width = output_width or output.width
+        output_height = output_height or output.height
 
         local full_area = ffi.new("struct wlr_box", { 0, 0, output_width, output_height })
         local usable_area = ffi.new("struct wlr_box", { 0, 0, output_width, output_height })
@@ -828,11 +801,9 @@ local function layer_surface_commit(listener, data)
 
     -- Initial configure to tell the client its size
     if output ~= nil and output ~= ffi.NULL then
-        local box = ffi.new("struct wlr_box")
-        wl.roots.output_layout_get_box(output_service:get_output_layout(), output, box)
-
-        local output_width = output.width > 0 and output.width or box.width
-        local output_height = output.height > 0 and output.height or box.height
+        local output_width, output_height = output_service:get_output_dimensions(output)
+        output_width = output_width or output.width
+        output_height = output_height or output.height
 
         local full_area = ffi.new("struct wlr_box", { 0, 0, output_width, output_height })
         local usable_area = ffi.new("struct wlr_box", { 0, 0, output_width, output_height })
@@ -846,21 +817,26 @@ local function layer_surface_destroy(listener, data)
     local layer_data = surface_service.listener_registry:get(listener)
     if not layer_data then return end
 
-    wl.list_remove(layer_data.map_listener[0].link)
-    wl.list_remove(layer_data.unmap_listener[0].link)
-    wl.list_remove(layer_data.commit_listener[0].link)
-    wl.list_remove(layer_data.destroy_listener[0].link)
+    unregister_layer_surface(layer_data)
+    cleanup_registered_listener(layer_data.map_listener, listener)
+    cleanup_registered_listener(layer_data.unmap_listener, listener)
+    cleanup_registered_listener(layer_data.commit_listener, listener)
+    cleanup_registered_listener(layer_data.destroy_listener, listener)
 end
 
 local function server_new_layer_surface(listener, data)
     local layer_surface = ffi.cast("struct wlr_layer_surface_v1*", data)
     local layer_tree = get_layer_tree_for_layer(layer_surface.pending.layer)
     local scene_layer = wl.roots.scene_layer_surface_v1_create(layer_tree, layer_surface)
+    if is_null(scene_layer) then
+        return
+    end
 
     local layer_data = {
         layer_surface = layer_surface,
         scene_layer = scene_layer,
     }
+    register_layer_surface(layer_data)
 
     layer_data.map_listener = wl.create_listener(layer_surface_map)
     surface_service.listener_registry:set(layer_data.map_listener, layer_data)
@@ -909,7 +885,15 @@ function surface_service:init()
 
     -- Create scene
     self.scene = wl.roots.scene_create()
+    if is_null(self.scene) then
+        log.error("Failed to create wlroots scene")
+        return
+    end
     self.scene_layout = wl.roots.scene_attach_output_layout(self.scene, output_service:get_output_layout())
+    if is_null(self.scene_layout) then
+        log.error("Failed to attach scene output layout")
+        return
+    end
 
     -- Create layer trees in z-order (first created = bottom, last = top)
     self.layers.background = wl.roots.scene_tree_create(self.scene.tree)
@@ -918,12 +902,22 @@ function surface_service:init()
     self.layers.top = wl.roots.scene_tree_create(self.scene.tree)
     self.layers.overlay = wl.roots.scene_tree_create(self.scene.tree)
     self.layers.unmanaged = wl.roots.scene_tree_create(self.scene.tree) -- Above overlay
+    for name, tree in pairs(self.layers) do
+        if is_null(tree) then
+            log.error("Failed to create scene layer '%s'", name)
+            return
+        end
+    end
 
     -- Tell output_service about the scene for scene output creation
     output_service:set_scene(self.scene, self.scene_layout)
 
     -- Create XDG shell
     self.xdg_shell = wl.roots.xdg_shell_create(core_service:get_display(), 3)
+    if is_null(self.xdg_shell) then
+        log.error("Failed to create xdg shell")
+        return
+    end
     self.listeners.new_xdg_toplevel = wl.create_listener(server_new_xdg_toplevel)
     wl.signal_add(self.xdg_shell.events.new_toplevel, self.listeners.new_xdg_toplevel)
     self.listeners.new_xdg_popup = wl.create_listener(server_new_xdg_popup)
@@ -931,6 +925,10 @@ function surface_service:init()
 
     -- Create layer shell
     self.layer_shell = wl.roots.layer_shell_v1_create(core_service:get_display(), 4)
+    if is_null(self.layer_shell) then
+        log.error("Failed to create layer shell")
+        return
+    end
     self.listeners.new_layer_surface = wl.create_listener(server_new_layer_surface)
     wl.signal_add(self.layer_shell.events.new_surface, self.listeners.new_layer_surface)
 
@@ -967,6 +965,11 @@ function surface_service:init()
     -- Create XDG decoration manager (Phase 2 - Easy)
     self.xdg_decoration_manager = wl.roots.xdg_decoration_manager_v1_create(core_service:get_display())
     if self.xdg_decoration_manager and self.xdg_decoration_manager ~= ffi.NULL then
+        self.listeners.new_toplevel_decoration = wl.create_listener(server_new_toplevel_decoration)
+        wl.signal_add(
+            self.xdg_decoration_manager.events.new_toplevel_decoration,
+            self.listeners.new_toplevel_decoration
+        )
         proto.implement("zxdg_decoration_manager_v1")
         proto.implement("zxdg_toplevel_decoration_v1")
     end

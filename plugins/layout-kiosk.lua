@@ -36,9 +36,10 @@ function kiosk:on_window_remove(monitor_state, surface)
     if monitor_state.kiosk.current_window == surface then
         monitor_state.kiosk.current_window = nil
         
-        -- Show the next available window
-        for _, w in ipairs(monitor_state.windows) do
-            if w ~= surface then
+        -- Show the most recently active remaining window.
+        for i = #monitor_state.windows, 1, -1 do
+            local w = monitor_state.windows[i]
+            if w ~= surface and w.scene_tree then
                 local wl = require("shared.wayland.server")
                 wl.roots.scene_node_set_enabled(w.scene_tree.node, true)
                 monitor_state.kiosk.current_window = w
@@ -54,9 +55,8 @@ function kiosk:position_window(monitor_state, surface)
     
     if not surface.scene_tree then return end
     
-    local output = monitor_state.output
-    local width = output.wlr_output.width
-    local height = output.wlr_output.height
+    local output_service = require("compositor.services.output")
+    local width, height = output_service:get_output_dimensions(monitor_state.output.wlr_output)
     
     -- Position at origin
     wl.roots.scene_node_set_position(surface.scene_tree.node, 0, 0)

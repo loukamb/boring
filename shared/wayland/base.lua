@@ -75,10 +75,14 @@ ffi.cdef [[
 int clock_gettime(int clock_id, struct timespec *tp);
 ]]
 
+local time_scratch = nil
+
 function base.get_time()
-    local ts = ffi.new("struct timespec")
-    ffi.C.clock_gettime(CLOCK_MONOTONIC, ts)
-    return ts
+    if not time_scratch then
+        time_scratch = ffi.new("struct timespec")
+    end
+    ffi.C.clock_gettime(CLOCK_MONOTONIC, time_scratch)
+    return time_scratch
 end
 
 -- Safe cdef with error reporting

@@ -13,9 +13,9 @@ local ffi = base.ffi
 local lib = clib.new()
     :cache("server")
     :soname("wayland-server")
-    :soname("wlroots-0.19")
+    :soname("wlroots-0.20")
     :soname("xkbcommon")
-    :package("pixman-1", "wlroots-0.19", "wayland-server", "xkbcommon")
+    :package("pixman-1", "wlroots-0.20", "wayland-server", "xkbcommon")
     :define("WLR_USE_UNSTABLE", "")
     :include("<wlr/util/log.h>")
     :include("<time.h>")
@@ -65,17 +65,17 @@ local lib = clib.new()
     :variable("DIR", "$(mktemp -d)")
     :shell('trap "rm -rf $DIR" EXIT')
     :shell(
-        'wayland-scanner server-header /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml "$DIR/xdg-shell-protocol.h" 2>/dev/null')
+        'wayland-scanner server-header /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml "$DIR/xdg-shell-protocol.h"')
     :shell(
-        'wayland-scanner server-header /usr/share/wlr-protocols/unstable/wlr-layer-shell-unstable-v1.xml "$DIR/wlr-layer-shell-unstable-v1-protocol.h" 2>/dev/null')
+        'wayland-scanner server-header /usr/share/wlr-protocols/unstable/wlr-layer-shell-unstable-v1.xml "$DIR/wlr-layer-shell-unstable-v1-protocol.h"')
     :shell(
-        'wayland-scanner server-header /usr/share/wayland-protocols/staging/cursor-shape/cursor-shape-v1.xml "$DIR/cursor-shape-v1-protocol.h" 2>/dev/null')
+        'wayland-scanner server-header /usr/share/wayland-protocols/staging/cursor-shape/cursor-shape-v1.xml "$DIR/cursor-shape-v1-protocol.h"')
     :shell(
-        'wayland-scanner server-header /usr/share/wayland-protocols/unstable/pointer-constraints/pointer-constraints-unstable-v1.xml "$DIR/pointer-constraints-unstable-v1-protocol.h" 2>/dev/null')
+        'wayland-scanner server-header /usr/share/wayland-protocols/unstable/pointer-constraints/pointer-constraints-unstable-v1.xml "$DIR/pointer-constraints-unstable-v1-protocol.h"')
     :shell(
-        'wayland-scanner server-header /usr/share/wayland-protocols/unstable/xdg-decoration/xdg-decoration-unstable-v1.xml "$DIR/xdg-decoration-unstable-v1-protocol.h" 2>/dev/null')
+        'wayland-scanner server-header /usr/share/wayland-protocols/unstable/xdg-decoration/xdg-decoration-unstable-v1.xml "$DIR/xdg-decoration-unstable-v1-protocol.h"')
     :shell(
-        'wayland-scanner server-header /usr/share/wayland-protocols/unstable/relative-pointer/relative-pointer-unstable-v1.xml "$DIR/relative-pointer-unstable-v1-protocol.h" 2>/dev/null')
+        'wayland-scanner server-header /usr/share/wayland-protocols/unstable/relative-pointer/relative-pointer-unstable-v1.xml "$DIR/relative-pointer-unstable-v1-protocol.h"')
     :cdef([[
 typedef int pid_t;
 pid_t fork(void);
@@ -221,6 +221,7 @@ setmetatable(wayland, {
         local full_name = "wl_" .. key
         local ok, fn = pcall(function() return lib[full_name] end)
         if ok and fn ~= nil then
+            rawset(wayland, key, fn)
             return fn
         end
         -- Fall back to base module
@@ -267,6 +268,10 @@ wayland.WLR_INPUT_DEVICE_SWITCH = 5
 wayland.WLR_SCENE_NODE_TREE = 0
 wayland.WLR_SCENE_NODE_RECT = 1
 wayland.WLR_SCENE_NODE_BUFFER = 2
+
+wayland.WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_NONE = 0
+wayland.WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE = 1
+wayland.WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE = 2
 
 wayland.WLR_DEBUG = 0
 wayland.WLR_INFO = 1
@@ -377,7 +382,10 @@ wayland.roots = setmetatable({}, {
     __index = function(_, key)
         local full_name = "wlr_" .. key
         local ok, fn = pcall(function() return lib[full_name] end)
-        if ok and fn then return fn end
+        if ok and fn then
+            rawset(wayland.roots, key, fn)
+            return fn
+        end
         return nil
     end
 })
@@ -387,7 +395,10 @@ wayland.xkb = setmetatable({}, {
     __index = function(_, key)
         local full_name = "xkb_" .. key
         local ok, fn = pcall(function() return lib[full_name] end)
-        if ok and fn then return fn end
+        if ok and fn then
+            rawset(wayland.xkb, key, fn)
+            return fn
+        end
         return nil
     end
 })
@@ -397,7 +408,10 @@ wayland.libinput = setmetatable({}, {
     __index = function(_, key)
         local full_name = "libinput_" .. key
         local ok, fn = pcall(function() return ffi.C[full_name] end)
-        if ok and fn then return fn end
+        if ok and fn then
+            rawset(wayland.libinput, key, fn)
+            return fn
+        end
         return nil
     end
 })
@@ -408,6 +422,64 @@ wayland.libinput = setmetatable({}, {
 
 function wayland.persistent_callback(signature, fn)
     return base.persistent_callback(wayland, signature, fn)
+end
+
+local function remove_prevent_gc(item)
+    for i = #wayland._prevent_gc, 1, -1 do
+        if wayland._prevent_gc[i] == item then
+            table.remove(wayland._prevent_gc, i)
+        end
+    end
+end
+
+local listener_handles = {}
+
+local function listener_key(listener)
+    return wayland.ptr_to_num(listener)
+end
+
+local function clear_listener_notify(listener_ref)
+    if ffi.istype("struct wl_listener[1]", listener_ref) then
+        listener_ref[0].notify = nil
+    elseif listener_ref and listener_ref ~= ffi.NULL then
+        listener_ref.notify = nil
+    end
+end
+
+local function release_listener_handle(key, listener_arr, listener_ref, handle)
+    remove_prevent_gc(listener_arr)
+    remove_prevent_gc(handle.callback)
+
+    if handle.callback and handle.callback ~= ffi.NULL then
+        pcall(function()
+            handle.callback:free()
+        end)
+    end
+
+    clear_listener_notify(listener_ref)
+    handle.callback = nil
+    handle.destroyed = true
+    listener_handles[key] = nil
+end
+
+local function protected_notify(fn)
+    return function(listener, data)
+        local key = listener_key(listener)
+        local handle = listener_handles[key]
+        if handle then
+            handle.dispatching = (handle.dispatching or 0) + 1
+        end
+        local ok, err = xpcall(fn, debug.traceback, listener, data)
+        if handle then
+            handle.dispatching = handle.dispatching - 1
+            if handle.pending_destroy and handle.dispatching == 0 then
+                release_listener_handle(key, handle.listener_arr, listener, handle)
+            end
+        end
+        if not ok then
+            log.error("wl listener error: %s", tostring(err))
+        end
+    end
 end
 
 function wayland.offsetof(ctype, member)
@@ -433,6 +505,9 @@ function wayland.list_insert(pos, entry)
 end
 
 function wayland.list_remove(entry)
+    if entry == nil or entry == ffi.NULL or entry.prev == nil or entry.prev == ffi.NULL then
+        return
+    end
     entry.prev.next = entry.next
     entry.next.prev = entry.prev
     entry.prev = nil
@@ -543,9 +618,17 @@ function Listener.new(callback, user_data)
     local self = setmetatable({}, Listener)
 
     self._listener_arr = ffi.new("struct wl_listener[1]")
-    self._callback = wayland.persistent_callback("wl_notify_func_t", callback)
+    self._callback = wayland.persistent_callback("wl_notify_func_t", protected_notify(callback))
     self._listener_arr[0].notify = self._callback
     self._user_data = user_data
+    self._destroyed = false
+    listener_handles[listener_key(self._listener_arr)] = {
+        callback = self._callback,
+        listener_arr = self._listener_arr,
+        owner = self,
+        destroyed = false,
+        dispatching = 0,
+    }
 
     table.insert(wayland._prevent_gc, self._listener_arr)
     table.insert(wayland._prevent_gc, self)
@@ -577,6 +660,28 @@ end
 
 function Listener:disconnect()
     wayland.list_remove(self._listener_arr[0].link)
+end
+
+function Listener:destroy()
+    if self._destroyed then
+        return
+    end
+    self:disconnect()
+    listener_registry:remove(self._listener_arr)
+    remove_prevent_gc(self._listener_arr)
+    remove_prevent_gc(self._callback)
+    remove_prevent_gc(self)
+    local key = listener_key(self._listener_arr)
+    local handle = listener_handles[key]
+    if handle and handle.dispatching and handle.dispatching > 0 then
+        handle.pending_destroy = true
+    else
+        release_listener_handle(key, self._listener_arr, self._listener_arr, handle or {
+            callback = self._callback,
+        })
+    end
+    self._callback = nil
+    self._destroyed = true
 end
 
 function Listener.from_ptr(listener_ptr)
@@ -660,9 +765,51 @@ wayland.ManagedList = ManagedList
 
 function wayland.create_listener(fn)
     local listener_arr = ffi.new("struct wl_listener[1]")
-    listener_arr[0].notify = wayland.persistent_callback("wl_notify_func_t", fn)
+    local callback = wayland.persistent_callback("wl_notify_func_t", protected_notify(fn))
+    listener_arr[0].notify = callback
+    listener_handles[listener_key(listener_arr)] = {
+        callback = callback,
+        listener_arr = listener_arr,
+        destroyed = false,
+        dispatching = 0,
+    }
     table.insert(wayland._prevent_gc, listener_arr)
     return listener_arr
+end
+
+function wayland.destroy_listener(listener)
+    if not listener or listener == ffi.NULL then
+        return
+    end
+
+    if type(listener) == "table" and getmetatable(listener) == Listener then
+        listener:destroy()
+        return
+    end
+
+    local handle = listener_handles[listener_key(listener)]
+    if handle and handle.destroyed then
+        return
+    end
+
+    local listener_arr = listener
+    local listener_ptr = listener
+    if ffi.istype("struct wl_listener[1]", listener) then
+        listener_ptr = listener[0]
+    end
+
+    wayland.list_remove(listener_ptr.link)
+
+    handle = listener_handles[listener_key(listener_arr)]
+    local callback = (handle and handle.callback) or listener_ptr.notify
+    remove_prevent_gc(listener_arr)
+    if handle and handle.dispatching and handle.dispatching > 0 then
+        handle.pending_destroy = true
+        return
+    end
+    release_listener_handle(listener_key(listener_arr), listener_arr, listener_arr, handle or {
+        callback = callback,
+    })
 end
 
 function wayland.new_listener(callback, user_data)

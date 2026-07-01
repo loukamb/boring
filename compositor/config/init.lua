@@ -1,6 +1,5 @@
 -- compositor/config/init.lua
 -- Main runtime module for compositor configuration
--- This is the refactored version of shared/runtime.lua
 
 local ConfigObject = require("compositor.config.object")
 local Registry = require("compositor.config.registry")
@@ -94,7 +93,7 @@ end
 
 function runtime.resolve_rules(rules, target_name)
     local result = {}
-    for _, rule in ipairs(rules) do
+    local function apply_rule(rule)
         if rule:is_enabled() and rule:matches(target_name) then
             for k, v in pairs(rule) do
                 if k:sub(1, 1) ~= "_" then
@@ -105,6 +104,17 @@ function runtime.resolve_rules(rules, target_name)
                     end
                 end
             end
+        end
+    end
+
+    for _, rule in ipairs(rules) do
+        if rule:get_name() == "*" then
+            apply_rule(rule)
+        end
+    end
+    for _, rule in ipairs(rules) do
+        if rule:get_name() ~= "*" then
+            apply_rule(rule)
         end
     end
     return result
@@ -235,14 +245,19 @@ function runtime.execute_run_verbs(instance)
     end
 
     -- Execute run_once verbs (only first time)
+    local ran_once_ids = {}
     for _, item in ipairs(instance.registry.run_once_verbs or {}) do
         if not executed_run_once[item.id] then
             local ok, err = pcall(item.verb)
             if not ok then
                 log.error("run_once verb failed: %s", err)
             end
-            executed_run_once[item.id] = true
+            ran_once_ids[item.id] = true
         end
+    end
+
+    for id in pairs(ran_once_ids) do
+        executed_run_once[id] = true
     end
 end
 

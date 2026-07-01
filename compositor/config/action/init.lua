@@ -4,8 +4,8 @@
 local modules = {
     require("compositor.config.action.process"),
     require("compositor.config.action.compositor"),
-    require("compositor.config.action.zoom"),
     require("compositor.config.action.fullscreen"),
+    require("compositor.config.action.layout"),
     require("compositor.config.action.window"),
 }
 

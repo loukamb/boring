@@ -350,10 +350,6 @@ function Watcher:poll()
             end
             
             offset = offset + INOTIFY_EVENT_SIZE + name_len
-            -- Align to next event (name_len is padded)
-            while offset < len and buf[offset] == 0 do
-                offset = offset + 1
-            end
         end
     end
 end

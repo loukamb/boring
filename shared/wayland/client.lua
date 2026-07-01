@@ -13,7 +13,6 @@ local lib = clib.new()
     :cache("client")
     :soname("wayland-client")
     :package("wayland-client")
-    :include("<time.h>")
     :include("<wayland-client.h>")
     :include("<wayland-client-protocol.h>")
     :include('"$DIR/wlr-layer-shell-unstable-v1-client-protocol.h"')
@@ -21,12 +20,13 @@ local lib = clib.new()
     :variable("DIR", "$(mktemp -d)")
     :shell('trap "rm -rf $DIR" EXIT')
     :shell(
-        'wayland-scanner client-header /usr/share/wlr-protocols/unstable/wlr-layer-shell-unstable-v1.xml "$DIR/wlr-layer-shell-unstable-v1-client-protocol.h" 2>/dev/null')
+        'wayland-scanner client-header /usr/share/wlr-protocols/unstable/wlr-layer-shell-unstable-v1.xml "$DIR/wlr-layer-shell-unstable-v1-client-protocol.h"')
     :shell(
-        'wayland-scanner client-header /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml "$DIR/xdg-shell-client-protocol.h" 2>/dev/null')
+        'wayland-scanner client-header /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml "$DIR/xdg-shell-client-protocol.h"')
     :cdef([[
 typedef int pid_t;
 pid_t fork(void);
+pid_t getpid(void);
 int execl(const char *path, const char *arg, ...);
 int setenv(const char *name, const char *value, int overwrite);
 
@@ -87,11 +87,13 @@ setmetatable(wayland, {
         local full_name = "wl_" .. key
         local ok, fn = pcall(function() return lib[full_name] end)
         if ok and fn ~= nil then
+            rawset(wayland, key, fn)
             return fn
         end
         -- Try ffi.C for wl_ prefix
         ok, fn = pcall(function() return ffi.C[full_name] end)
         if ok and fn ~= nil then
+            rawset(wayland, key, fn)
             return fn
         end
         -- Fall back to base module
@@ -117,6 +119,7 @@ local WL_COMPOSITOR_CREATE_SURFACE = 0
 local WL_SHM_CREATE_POOL = 0
 local WL_SHM_POOL_CREATE_BUFFER = 0
 local WL_SHM_POOL_DESTROY = 1
+local WL_BUFFER_DESTROY = 0
 local WL_SURFACE_ATTACH = 1
 local WL_SURFACE_DAMAGE = 2
 local WL_SURFACE_COMMIT = 6
@@ -200,6 +203,14 @@ function wayland.shm_pool_destroy(pool)
     lib.wl_proxy_destroy(ffi.cast("struct wl_proxy*", pool))
 end
 
+function wayland.buffer_destroy(buffer)
+    if buffer == nil or buffer == ffi.NULL then
+        return
+    end
+    lib.wl_proxy_marshal(ffi.cast("struct wl_proxy*", buffer), WL_BUFFER_DESTROY)
+    lib.wl_proxy_destroy(ffi.cast("struct wl_proxy*", buffer))
+end
+
 function wayland.surface_attach(surface, buffer, x, y)
     lib.wl_proxy_marshal(
         ffi.cast("struct wl_proxy*", surface),
@@ -236,26 +247,29 @@ function wayland.surface_commit(surface)
     lib.wl_proxy_marshal(ffi.cast("struct wl_proxy*", surface), WL_SURFACE_COMMIT)
 end
 
+local shm_counter = 0
+
 function wayland.create_shm_buffer(shm, width, height, format)
     local stride = width * 4
     local size = stride * height
 
-    local name = string.format("/wl_shm-%d-%d", os.time(), math.random(100000))
+    shm_counter = shm_counter + 1
+    local name = string.format("/wl_shm-%d-%d", tonumber(ffi.C.getpid()), shm_counter)
     local fd = ffi.C.shm_open(name, base.bit.bor(wayland.O_RDWR, wayland.O_CREAT, wayland.O_EXCL), 0x180)
     if fd < 0 then
-        return nil, nil, "shm_open failed"
+        return nil, nil, nil, "shm_open failed"
     end
     ffi.C.shm_unlink(name)
 
     if ffi.C.ftruncate(fd, size) < 0 then
         ffi.C.close(fd)
-        return nil, nil, "ftruncate failed"
+        return nil, nil, nil, "ftruncate failed"
     end
 
     local data = ffi.C.mmap(nil, size, base.bit.bor(wayland.PROT_READ, wayland.PROT_WRITE), wayland.MAP_SHARED, fd, 0)
     if data == ffi.cast("void*", -1) then
         ffi.C.close(fd)
-        return nil, nil, "mmap failed"
+        return nil, nil, nil, "mmap failed"
     end
 
     local pool = wayland.shm_create_pool(shm, fd, size)
@@ -263,7 +277,7 @@ function wayland.create_shm_buffer(shm, width, height, format)
     wayland.shm_pool_destroy(pool)
     ffi.C.close(fd)
 
-    return buffer, data
+    return buffer, data, size
 end
 
 --------------------------------------------------------------------------------

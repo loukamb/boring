@@ -31,11 +31,19 @@ The compositor is entirely written in [LuaJIT](https://luajit.org/luajit.html). 
 To get started with `boring`, you need the following dependencies installed:
 
 - LuaJIT
-- The most recent version of `wlroots`, which at the time of writing is 0.19
+- The most recent version of `wlroots`, which at the time of writing is 0.20
 - `wlr-protocols` and `wayland-protocols` installed
 - `gcc` and `pkg-config`
 
 Some additional dependencies may be needed depending on the plugins you choose to use. The default plugins depend on `xwayland`, which requires `xorg-server` and `libxcb`, as well as `libvips` for the wallpaper and screenshot plugins.
+
+On Debian 13 hosts, use the provided Arch container for development if you want
+the current wlroots target:
+
+```bash
+podman build -t boring-dev -f Containerfile .
+podman run --rm -it -v "$PWD:/workspace" -w /workspace boring-dev
+```
 
 To download the compositor, clone the repository, then use `switch.lua` to launch the compositor program:
 
@@ -59,6 +67,28 @@ The dependencies for development are the same as for usage. If you can run the c
 - [**`/shared`**](/shared/): Common utilities shared across the programs in this repo
 - [**`/plugins`**](/plugins/): Default plugins
 - [**`/website`**](/website/): Website for the project
+
+### Testing
+
+Tests are split by how much compositor machinery they need:
+
+- `tests/unit`: pure Lua and parser/config tests.
+- `tests/service`: wlroots-adjacent service and plugin tests using fake objects or direct helper APIs.
+- `tests/integration`: headless compositor scenarios driven through `tests/harness`.
+
+Run the full suite locally with:
+
+```bash
+luajit tests/run.lua --suite all
+```
+
+CI uses TAP output:
+
+```bash
+luajit tests/run.lua --suite unit --format tap
+luajit tests/run.lua --suite service --format tap
+luajit tests/run.lua --suite integration --format tap
+```
 
 ### Plugins
 
