@@ -80,6 +80,7 @@ local function update_wallpaper_for_output(wlr_output, output_name)
     -- Find config for this output
     local wallpaper_value = nil
     if config_cache then
+        local wildcard_value = nil
         for key, value in pairs(config_cache) do
             local key_name = nil
             if type(key) == "table" and key.name then
@@ -90,10 +91,15 @@ local function update_wallpaper_for_output(wlr_output, output_name)
                 key_name = key
             end
 
-            if key_name == "*" or key_name == output_name then
+            if key_name == output_name then
                 wallpaper_value = value
                 break
+            elseif key_name == "*" then
+                wildcard_value = value
             end
+        end
+        if wallpaper_value == nil then
+            wallpaper_value = wildcard_value
         end
     end
 
