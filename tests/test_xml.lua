@@ -29,4 +29,20 @@ return function(t)
         t.eq(attr, "<>&\"'")
         t.eq(text, "a & b")
     end)
+
+    t.test("parses comments, cdata, and self-closing tags", function()
+        local tags = {}
+        local text = {}
+        xml.parse('<root><!--skip--><child/><data><![CDATA[x < y]]></data></root>', {
+            start_element = function(tag)
+                table.insert(tags, tag)
+            end,
+            text = function(value)
+                table.insert(text, value)
+            end,
+        })
+
+        t.eq(table.concat(tags, ","), "root,child,data")
+        t.eq(table.concat(text, ""), "x < y")
+    end)
 end

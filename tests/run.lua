@@ -8,6 +8,12 @@ local files = {
     "tests/test_runtime.lua",
     "tests/test_events.lua",
     "tests/test_input.lua",
+    "tests/test_color_hash.lua",
+    "tests/test_clib_protocol.lua",
+    "tests/test_monitor_output.lua",
+    "tests/test_tiling.lua",
+    "tests/test_borders.lua",
+    "tests/test_listeners.lua",
 }
 
 local total = 0

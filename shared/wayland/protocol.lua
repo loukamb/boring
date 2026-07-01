@@ -140,4 +140,8 @@ function protocol.parse_file(path)
     return protocol.parse(content)
 end
 
+protocol._private = {
+    build_signature = build_signature,
+}
+
 return protocol

@@ -571,4 +571,10 @@ function Builder:build()
     return namespace
 end
 
+clib._private = {
+    remove_attributes = remove_attributes,
+    is_static_inline = is_static_inline,
+    has_problematic_types = has_problematic_types,
+}
+
 return clib

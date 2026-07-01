@@ -32,3 +32,12 @@ jobs:
         run: |
           BORING_DEBUG=1 luajit -e 'package.path="./?/init.lua;./?.lua;"..package.path; require("shared.wayland.server")'
           BORING_DEBUG=1 luajit -e 'package.path="./?/init.lua;./?.lua;"..package.path; require("shared.wayland.client")'
+
+      - name: Headless compositor smoke test
+        run: |
+          mkdir -p /tmp/boring-runtime
+          chmod 700 /tmp/boring-runtime
+          set +e
+          XDG_RUNTIME_DIR=/tmp/boring-runtime WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 timeout 5s luajit switch.lua compositor
+          code=$?
+          test "$code" -eq 124
