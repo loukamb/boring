@@ -56,6 +56,9 @@ function state.reload_config(pathToConfig, doNotEmit)
         pathToConfig = paths.find_config() or "default.lua"
     end
 
+    local plugin_module = require("compositor.plugin")
+    plugin_module.unmount_all()
+
     -- Create new runtime instance and set as current
     local runtime = config.new()
     config._current = runtime

@@ -18,18 +18,29 @@ function event_emitter.new()
         if not self.listeners[event] then
             self.listeners[event] = {}
         end
-        table.insert(self.listeners[event], callback)
+        local listener = {
+            event = event,
+            callback = callback,
+            emitter = self,
+        }
+        table.insert(self.listeners[event], listener)
+
+        function listener:off()
+            self.emitter:off(self.event, self)
+        end
+
+        return listener
     end
 
     ---Unregister a callback from an event
     ---@param event string Event name
-    ---@param callback function The exact callback function to remove
+    ---@param callback function|table The exact callback or listener handle to remove
     function emitter:off(event, callback)
         if not self.listeners[event] then
             return
         end
-        for i, cb in ipairs(self.listeners[event]) do
-            if cb == callback then
+        for i, listener in ipairs(self.listeners[event]) do
+            if listener == callback or listener.callback == callback then
                 table.remove(self.listeners[event], i)
                 break
             end
@@ -43,8 +54,12 @@ function event_emitter.new()
         if not self.listeners[event] then
             return
         end
-        for _, callback in ipairs(self.listeners[event]) do
-            callback(...)
+        for _, listener in ipairs(self.listeners[event]) do
+            local ok, err = pcall(listener.callback, ...)
+            if not ok then
+                local log = require("shared.log")
+                log.error("Event '%s' listener error: %s", event, err)
+            end
         end
     end
 
