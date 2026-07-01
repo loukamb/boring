@@ -18,4 +18,4 @@ RUN pacman -Syu --noconfirm --needed \
 ENV PKG_CONFIG_PATH=/usr/lib/pkgconfig:/usr/share/pkgconfig
 WORKDIR /workspace
 
-CMD ["luajit", "tests/run.lua"]
+CMD ["luajit", "tests/run.lua", "--suite", "all"]

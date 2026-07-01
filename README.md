@@ -68,6 +68,28 @@ The dependencies for development are the same as for usage. If you can run the c
 - [**`/plugins`**](/plugins/): Default plugins
 - [**`/website`**](/website/): Website for the project
 
+### Testing
+
+Tests are split by how much compositor machinery they need:
+
+- `tests/unit`: pure Lua and parser/config tests.
+- `tests/service`: wlroots-adjacent service and plugin tests using fake objects or direct helper APIs.
+- `tests/integration`: headless compositor scenarios driven through `tests/harness`.
+
+Run the full suite locally with:
+
+```bash
+luajit tests/run.lua --suite all
+```
+
+CI uses TAP output:
+
+```bash
+luajit tests/run.lua --suite unit --format tap
+luajit tests/run.lua --suite service --format tap
+luajit tests/run.lua --suite integration --format tap
+```
+
 ### Plugins
 
 To write a plugin, put a Lua file in the `~/.config/boring/plugins` directory that returns a table with a `name` field alongside `mount` and `unmount` functions. You can also create a folder and move your plugin's entrypoint to `$DIR/init.lua` if you have to ship multiple files. To enable your plugin, add it to your configuration file:

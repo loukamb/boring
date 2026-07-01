@@ -17,6 +17,13 @@ return function(t)
 
     t.test("emitter contains listener errors", function()
         local emitter = emitter_module.new()
+        local log = require("shared.log")
+        local old_error = log.error
+        log.error = function() end
+        t.cleanup(function()
+            log.error = old_error
+        end)
+
         local calls = 0
 
         emitter:on("event", function()
