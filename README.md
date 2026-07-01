@@ -31,11 +31,19 @@ The compositor is entirely written in [LuaJIT](https://luajit.org/luajit.html). 
 To get started with `boring`, you need the following dependencies installed:
 
 - LuaJIT
-- The most recent version of `wlroots`, which at the time of writing is 0.19
+- The most recent version of `wlroots`, which at the time of writing is 0.20
 - `wlr-protocols` and `wayland-protocols` installed
 - `gcc` and `pkg-config`
 
 Some additional dependencies may be needed depending on the plugins you choose to use. The default plugins depend on `xwayland`, which requires `xorg-server` and `libxcb`, as well as `libvips` for the wallpaper and screenshot plugins.
+
+On Debian 13 hosts, use the provided Arch container for development if you want
+the current wlroots target:
+
+```bash
+podman build -t boring-dev -f Containerfile .
+podman run --rm -it -v "$PWD:/workspace" -w /workspace boring-dev
+```
 
 To download the compositor, clone the repository, then use `switch.lua` to launch the compositor program:
 

@@ -1,0 +1,34 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lua:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:base-devel
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          pacman -Syu --noconfirm --needed \
+            git \
+            gcc \
+            luajit \
+            pkgconf \
+            wlroots0.20 \
+            wlr-protocols \
+            wayland-protocols \
+            libvips \
+            xorg-xwayland
+
+      - name: Run Lua tests
+        run: luajit tests/run.lua
+
+      - name: Generate Wayland FFI bindings
+        run: |
+          BORING_DEBUG=1 luajit -e 'package.path="./?/init.lua;./?.lua;"..package.path; require("shared.wayland.server")'
+          BORING_DEBUG=1 luajit -e 'package.path="./?/init.lua;./?.lua;"..package.path; require("shared.wayland.client")'
