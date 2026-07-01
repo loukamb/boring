@@ -179,7 +179,7 @@ end
 ---@return table
 function Registry:_resolve_rules(rules, target_name)
     local result = {}
-    for _, rule in ipairs(rules) do
+    local function apply_rule(rule)
         if rule:is_enabled() and rule:matches(target_name) then
             for k, v in pairs(rule) do
                 if k:sub(1, 1) ~= "_" then
@@ -190,6 +190,17 @@ function Registry:_resolve_rules(rules, target_name)
                     end
                 end
             end
+        end
+    end
+
+    for _, rule in ipairs(rules) do
+        if rule:get_name() == "*" then
+            apply_rule(rule)
+        end
+    end
+    for _, rule in ipairs(rules) do
+        if rule:get_name() ~= "*" then
+            apply_rule(rule)
         end
     end
     return result
