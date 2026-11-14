@@ -7,6 +7,11 @@ local shortcuts = {
     ["Alt+v"] = tiling.actions.split_vertical,
     ["Alt+b"] = tiling.actions.split_horizontal,
     ["Alt+f"] = actions.fullscreen,
+    ["Alt+h"] = tiling.actions.focus("left"),
+    ["Alt+l"] = tiling.actions.focus("right"),
+    ["Alt+Shift+h"] = tiling.actions.move("left"),
+    ["Alt+Shift+l"] = tiling.actions.move("right"),
+    ["Alt+Ctrl+l"] = tiling.actions.resize("right", 100),
 }
 for i = 1, 4 do
     shortcuts["Alt+" .. i] = ws.actions.switch(i)

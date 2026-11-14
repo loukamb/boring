@@ -86,6 +86,15 @@ local function set_fullscreen(w, on)
     w.server.events:emit("window:fullscreen", w)
 end
 
+--- Mark the window as wanting attention (or not). Focusing it clears it.
+--- Emits window:urgent(w).
+local function set_urgent(w, on)
+    on = on and true or false
+    if w.urgent == on then return end
+    w.urgent = on
+    w.server.events:emit("window:urgent", w)
+end
+
 --- Tell the client it's maximized (or not). Emits window:maximize(w).
 local function set_maximized(w, on)
     on = on and true or false
@@ -140,6 +149,7 @@ function window.new(server, surface, tree, impl)
         activated = false,
         fullscreen = false,
         maximized = false,
+        urgent = false,
         data = {},
 
         position = position,
@@ -152,6 +162,7 @@ function window.new(server, surface, tree, impl)
         visible = visible,
         set_fullscreen = set_fullscreen,
         set_maximized = set_maximized,
+        set_urgent = set_urgent,
         raise = raise,
         close = close,
         title = title,

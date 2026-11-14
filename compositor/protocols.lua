@@ -61,13 +61,24 @@ protocols.list = {
         end,
     },
     {
-        -- Launchers hand an activation token to the app they start; honour it.
+        -- Activation tokens: a window activated with a token from the focused
+        -- window (a link clicked in it) or from something that isn't a window
+        -- (a launcher, a panel) gets focus. Anything else only marks it
+        -- urgent, so windows can't steal focus.
         interfaces = { "xdg_activation_v1", "xdg_activation_token_v1" },
         setup = function(server)
             local activation = lib.wlr_xdg_activation_v1_create(server.display)
             server.scope:listen(activation.events.request_activate, function(event)
                 local w = windows.from_surface(server, event.surface)
-                if w and w.mapped then windows.focus(server, w) end
+                if not w or not w.mapped then return end
+                local origin = event.token.surface
+                local from = origin ~= nil and windows.from_surface(server, origin) or nil
+                local trusted = origin ~= nil and (from == nil or from == server.focused)
+                if trusted or server.focused == nil then
+                    windows.focus(server, w)
+                elseif server.focused ~= w then
+                    w:set_urgent(true)
+                end
             end, "struct wlr_xdg_activation_v1_request_activate_event")
         end,
     },

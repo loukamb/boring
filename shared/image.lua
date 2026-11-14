@@ -306,12 +306,19 @@ end
 ---@param text string
 ---@param font string|nil Pango font description, e.g. "Sans Bold 10"
 ---@param dpi number|nil
-function image.text(text, font, dpi)
+---@param wrap number|nil wrap lines at this width in pixels
+function image.text(text, font, dpi, wrap)
     if text == nil or text == "" then return nil end
     ensure_init()
     local out = ffi.new("VipsImage*[1]")
-    local result = vips.vips_text(out, text, "font", font or "Sans 10",
-        "dpi", ffi.cast("int", dpi or 96), nil)
+    local result
+    if wrap then
+        result = vips.vips_text(out, text, "font", font or "Sans 10",
+            "dpi", ffi.cast("int", dpi or 96), "width", ffi.cast("int", wrap), nil)
+    else
+        result = vips.vips_text(out, text, "font", font or "Sans 10",
+            "dpi", ffi.cast("int", dpi or 96), nil)
+    end
     check_error(result, "text")
     local img = wrap_image(out[0])
     local width, height = img:width(), img:height()

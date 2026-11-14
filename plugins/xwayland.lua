@@ -8,6 +8,8 @@
 -- Their requests (move, resize, fullscreen, ...) become the same
 -- window:request_* events as Wayland clients'.
 
+local bit = require("bit")
+
 local plugin = { name = "xwayland" }
 
 function plugin:mount(_, ctx)
@@ -114,6 +116,14 @@ function plugin:mount(_, ctx)
         s:listen(xs.events.request_resize, function(ev)
             if w then boring.events:emit("window:request_resize", w, ev.edges) end
         end, "struct wlr_xwayland_resize_event")
+        -- The ICCCM urgency hint (XUrgencyHint).
+        s:listen(xs.events.set_hints, function()
+            if w and xs.hints ~= nil then
+                local urgent = bit.band(xs.hints.flags, 256) ~= 0
+                if urgent and boring.focused() ~= w then w:set_urgent(true)
+                elseif not urgent then w:set_urgent(false) end
+            end
+        end)
         s:listen(xs.events.set_title, function() if w then boring.events:emit("window:title", w) end end)
         s:listen(xs.events.set_class, function() if w then boring.events:emit("window:title", w) end end)
         return unmap

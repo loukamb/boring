@@ -70,6 +70,7 @@ function windows.focus(server, w)
     end
 
     server.focused = w
+    w:set_urgent(false)
     w:raise()
     remove(server.windows, w)
     table.insert(server.windows, 1, w)

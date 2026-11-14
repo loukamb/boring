@@ -5,6 +5,7 @@
 --   window:map(w)   window:unmap(w)   window:focus(w)   window:blur(w)
 --   window:commit(w)                  window:title(w)
 --   window:fullscreen(w)              window:maximize(w)   (state changed)
+--   window:urgent(w)                  (w.urgent changed; focus clears it)
 --   output:add(o)   output:change(o)  output:usable(o)     output:remove(o)
 --   ready()         shutdown()
 --
@@ -124,6 +125,9 @@ function api.create(server)
     --- Run fn after `ms` milliseconds; if it returns a number, again after
     --- that many. Returns a function that cancels it.
     function boring.after(ms, fn) return timer.after(server, ms, fn) end
+
+    --- Monotonic time in milliseconds.
+    boring.now = timer.now
 
     function boring.exit()
         process.stop_all()

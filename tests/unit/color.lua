@@ -10,4 +10,17 @@ return function(t)
         t.eq(a, 0x80)
         t.eq(color.to_hex(c), "#336699")
     end)
+
+    t.test("color parse falls back; float4 premultiplies alpha", function()
+        local grey = { 0.5, 0.5, 0.5, 1 }
+        t.eq(color.parse("bad", grey), grey)
+        t.eq(color.parse({ 1, 0, 0 })[4], 1)
+        t.eq(color.parse("#ff0000")[1], 1)
+
+        local c = color.float4({ 1.0, 0.5, 0.25, 0.5 })
+        t.eq(c[0], 0.5)
+        t.eq(c[1], 0.25)
+        t.eq(c[2], 0.125)
+        t.eq(c[3], 0.5)
+    end)
 end

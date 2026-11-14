@@ -10,7 +10,7 @@
 local wl = require("shared.wl")
 local log = require("shared.log")
 
-local ffi, lib = wl.ffi, wl.lib
+local ffi, lib, C = wl.ffi, wl.lib, wl.C
 
 local timer = {}
 
@@ -56,6 +56,14 @@ function timer.after(server, ms, fn)
     -- A delay of 0 disarms a timer; the shortest real one is 1 ms.
     lib.wl_event_source_timer_update(source, math.max(1, math.floor(ms)))
     return function() remove(id) end
+end
+
+local ts = ffi.new("struct timespec")
+
+--- Monotonic time in milliseconds (fractional).
+function timer.now()
+    C.clock_gettime(C.CLOCK_MONOTONIC, ts)
+    return tonumber(ts.tv_sec) * 1000 + tonumber(ts.tv_nsec) / 1e6
 end
 
 --- Cancel every timer (the server is going away).

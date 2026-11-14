@@ -1,5 +1,7 @@
 --- Color manipulation utilities
 ---@class shared.color
+local ffi = require("ffi")
+
 local color = {}
 --- RGBA color type (array of 4 floats in 0-1 range)
 --- @alias Color number[] Array of {r, g, b, a} floats (0-1 range)
@@ -49,6 +51,26 @@ function color.hex(str)
         end
     end
     return nil
+end
+
+---A color from a config value: a hex string or an {r, g, b, a} table.
+---@param value string|Color|nil
+---@param fallback Color|nil returned when value is missing or invalid
+---@return Color|nil
+function color.parse(value, fallback)
+    if type(value) == "string" then return color.hex(value) or fallback end
+    if type(value) == "table" then
+        return { value[1] or 0, value[2] or 0, value[3] or 0, value[4] or 1 }
+    end
+    return fallback
+end
+
+---Premultiplied float[4], what wlroots scene rects take.
+---@param c Color
+---@return ffi.cdata* float[4]
+function color.float4(c)
+    local a = c[4] or 1
+    return ffi.new("float[4]", c[1] * a, c[2] * a, c[3] * a, a)
 end
 
 ---Convert color to hex string (ignores alpha)

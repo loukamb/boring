@@ -31,7 +31,8 @@ function kiosk:add(space, w) show(space, w) end
 function kiosk:remove(space, w)
     if space.data.current ~= w then return end
     space.data.current = nil
-    local previous = space.windows[#space.windows]
+    local arranged = spaces.arranged(space)
+    local previous = arranged[#arranged]
     if previous then show(space, previous) end
 end
 

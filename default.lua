@@ -82,9 +82,14 @@ plugin("@boring/layout-stacking"):mount({
         button_foreground = "#0a0a0a",
     },
 
+    -- Title bar controls, left to right. Buttons with the
+    -- icons minimize, maximize and close do what they say;
+    -- give any button an on_click to do something else.
     controls = {
         { type = "title" },
         { type = "spacer" },
+        { type = "button", icon = "minimize" },
+        { type = "button", icon = "maximize" },
         {
             type = "button",
             icon = "close",

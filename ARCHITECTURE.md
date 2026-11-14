@@ -197,7 +197,7 @@ a smoke test in the VM display.
    layout a space uses is the layout plugins' configuration.
    `library/workspaces` builds on spaces: several per output, one shown,
    `ext-workspace` for panels.
-8. **Shared libraries and clean-up.** `library/text` (text into scene
+8. ~~**Shared libraries and clean-up.**~~ Done. `library/text` (text into scene
    buffers: font, colour, max width, ellipsis; taken out of stacking),
    `library/fullscreen` (save geometry, fill the output, restore; used by
    every layout instead of three copies), `color.float4` for the

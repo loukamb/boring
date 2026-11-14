@@ -4,727 +4,332 @@
 --
 --   local tiling = plugin("@boring/layout-tiling"):mount({
 --       outputs = { "DP-1" },                         -- default: every output
---       gaps = { inner = 4, outer = 4, smart = true },
+--       gaps = { inner = 4, outer = 4, smart = true }, -- smart: none for one window
 --   })
---   ["Mod4+b"] = tiling.actions.split_horizontal,
---   ["Mod4+v"] = tiling.actions.split_vertical,
+--   ["Mod4+h"] = tiling.actions.focus("left"),        -- left, right, up, down
+--   ["Mod4+Shift+h"] = tiling.actions.move("left"),   -- swap with the neighbour
+--   ["Mod4+Ctrl+h"] = tiling.actions.resize("left", 40),  -- grow towards a side
+--   ["Mod4+b"] = tiling.actions.split_horizontal,     -- next window goes beside
+--   ["Mod4+v"] = tiling.actions.split_vertical,       -- next window goes below
+--
+-- New windows go next to the focused one, in its split. Dragging a window
+-- onto another swaps them; dragging an edge resizes the split.
 
 local bit = require("bit")
 local C = require("ffi").C
 local spaces = require("@boring/library/spaces")
 
-local tiling = {}
+local LEFT, RIGHT, TOP, BOTTOM = C.WLR_EDGE_LEFT, C.WLR_EDGE_RIGHT, C.WLR_EDGE_TOP, C.WLR_EDGE_BOTTOM
+local HORIZONTAL_EDGES = bit.bor(LEFT, RIGHT)
+local VERTICAL_EDGES = bit.bor(TOP, BOTTOM)
+local MIN_SIZE = 50
 
-local function has_scene(surface)
-    return surface ~= nil and surface.tree ~= nil
-end
-
-local function geometry(surface)
-    return surface:geometry()
-end
+local tiling = { gaps = { inner = 4, outer = 4, smart = true } }
 
 --------------------------------------------------------------------------------
--- Container Data Structures (Sway N-ary tree)
+-- The tree
+--
+-- A space's tree is { layout = "horizontal"|"vertical", children = {...} }.
+-- Children are leaves { type = "leaf", window } or splits { type = "split",
+-- layout, children }. Each has a parent (nil at the top), its share of its
+-- parent (width_fraction/height_fraction, 0 for "not assigned yet") and the
+-- box it got at the last arrange (x, y, width, height).
 --------------------------------------------------------------------------------
 
--- Create a leaf container holding a single window
-local function create_leaf(surface)
-    return {
-        type = "leaf",
-        surface = surface,
-        parent = nil,
-        -- Fractions (0 = new, needs assignment during arrange)
-        width_fraction = 0,
-        height_fraction = 0,
-        -- Cached geometry (computed during layout)
-        x = 0,
-        y = 0,
-        width = 0,
-        height = 0,
-    }
+local function node(fields)
+    fields.width_fraction, fields.height_fraction = 0, 0
+    fields.x, fields.y, fields.width, fields.height = 0, 0, 0, 0
+    return fields
 end
 
--- Create a split container with N children
-local function create_split(layout, children)
-    local split = {
-        type = "split",
-        layout = layout, -- "horizontal" or "vertical"
-        children = children or {},
-        parent = nil,
-        -- Fractions for this container within its parent
-        width_fraction = 0,
-        height_fraction = 0,
-        -- Cached geometry
-        x = 0,
-        y = 0,
-        width = 0,
-        height = 0,
-    }
-    -- Set parent references
-    for _, child in ipairs(split.children) do
-        child.parent = split
-    end
-    return split
+local function leaf(w) return node({ type = "leaf", window = w }) end
+
+local function split(layout, children)
+    local s = node({ type = "split", layout = layout, children = children or {} })
+    for _, child in ipairs(s.children) do child.parent = s end
+    return s
 end
 
---------------------------------------------------------------------------------
--- Tree Traversal and Search
---------------------------------------------------------------------------------
-
--- Find the leaf container holding a specific surface
-local function find_container(container, surface)
-    if not container then return nil end
-
-    if container.type == "leaf" then
-        if container.surface == surface then
-            return container
-        end
-        return nil
-    end
-
-    -- Search children
-    for _, child in ipairs(container.children) do
-        local found = find_container(child, surface)
-        if found then return found end
-    end
-
-    return nil
-end
-
--- Find container in a list of top-level children
-local function find_in_children(children, surface)
-    for _, child in ipairs(children) do
-        local found = find_container(child, surface)
-        if found then return found end
-    end
-    return nil
-end
-
-local function container_in_tree(container, target)
-    if not container then return false end
-    if container == target then return true end
-    if container.type == "split" then
-        for _, child in ipairs(container.children) do
-            if container_in_tree(child, target) then
-                return true
-            end
-        end
-    end
-    return false
-end
-
-local function split_in_tiling_state(tiling_state, split)
-    if not split then return false end
-    for _, child in ipairs(tiling_state.children) do
-        if container_in_tree(child, split) then
-            return true
-        end
-    end
-    return false
-end
-
--- Count all leaf containers (windows) in the tree
-local function count_leaves(container)
-    if not container then return 0 end
-
-    if container.type == "leaf" then
-        return 1
-    end
-
-    local count = 0
-    for _, child in ipairs(container.children) do
-        count = count + count_leaves(child)
-    end
-    return count
-end
-
--- Count leaves in a list of children
-local function count_leaves_in_list(children)
-    local count = 0
-    for _, child in ipairs(children) do
-        count = count + count_leaves(child)
-    end
-    return count
-end
-
--- Get all leaf containers as a flat list
-local function get_all_leaves(container, result)
-    result = result or {}
-    if not container then return result end
-
-    if container.type == "leaf" then
-        table.insert(result, container)
-        return result
-    end
-
-    for _, child in ipairs(container.children) do
-        get_all_leaves(child, result)
-    end
-    return result
-end
-
--- Find index of item in array
-local function find_index(arr, item)
-    for i, v in ipairs(arr) do
+local function index_of(list, item)
+    for i, v in ipairs(list) do
         if v == item then return i end
     end
-    return nil
 end
 
---------------------------------------------------------------------------------
--- Resize Helper Functions (from Sway's resize.c)
---------------------------------------------------------------------------------
-
--- WLR_EDGE constants for resize direction
-local WLR_EDGE_NONE = C.WLR_EDGE_NONE
-local WLR_EDGE_TOP = C.WLR_EDGE_TOP
-local WLR_EDGE_BOTTOM = C.WLR_EDGE_BOTTOM
-local WLR_EDGE_LEFT = C.WLR_EDGE_LEFT
-local WLR_EDGE_RIGHT = C.WLR_EDGE_RIGHT
-
--- Check if edge is horizontal (left/right)
-local function is_horizontal_edge(edge)
-    return bit.band(edge, bit.bor(WLR_EDGE_LEFT, WLR_EDGE_RIGHT)) ~= 0
+-- The list a container lives in: its parent's children, or the top level.
+local function siblings_of(tree, c)
+    return c.parent and c.parent.children or tree.children
 end
 
--- Resize a tiled container by a pixel amount
--- SIMPLIFIED: Directly modify widths as integers, then derive fractions
--- This avoids float/int precision issues from complex fraction math
--- @param con: The container to resize
--- @param axis: The edge/axis (WLR_EDGE_LEFT, WLR_EDGE_RIGHT, etc.)
--- @param amount: Pixel amount (integer) to resize by
--- @param siblings: List of all siblings at this level
-local function container_resize_tiled(con, axis, amount, siblings, space)
-    if not con or not siblings or #siblings < 2 then
+local function layout_of(tree, c)
+    return c.parent and c.parent.layout or tree.layout
+end
+
+local function each_leaf(list, fn)
+    for _, c in ipairs(list) do
+        if c.type == "leaf" then fn(c) else each_leaf(c.children, fn) end
+    end
+end
+
+local function find(list, w)
+    for _, c in ipairs(list) do
+        if c.type == "leaf" then
+            if c.window == w then return c end
+        else
+            local found = find(c.children, w)
+            if found then return found end
+        end
+    end
+end
+
+local function count(list)
+    local n = 0
+    each_leaf(list, function() n = n + 1 end)
+    return n
+end
+
+local function contains(list, target)
+    for _, c in ipairs(list) do
+        if c == target or (c.type == "split" and contains(c.children, target)) then return true end
+    end
+    return false
+end
+
+local function leaf_at(list, x, y)
+    for _, c in ipairs(list) do
+        if x >= c.x and x < c.x + c.width and y >= c.y and y < c.y + c.height then
+            if c.type == "leaf" then return c end
+            return leaf_at(c.children, x, y)
+        end
+    end
+end
+
+--- Add a window next to `focused` (in the active split, if there's one).
+local function add(tree, w, focused)
+    local new = leaf(w)
+    local at = focused and find(tree.children, focused)
+    if not at then
+        table.insert(tree.children, new)
+        return new
+    end
+    local active = tree.active_split
+    if active and contains(tree.children, active) then
+        local i = index_of(active.children, at)
+        table.insert(active.children, i and i + 1 or #active.children + 1, new)
+        new.parent = active
+        return new
+    end
+    tree.active_split = nil
+    local list = siblings_of(tree, at)
+    table.insert(list, index_of(list, at) + 1, new)
+    new.parent = at.parent
+    return new
+end
+
+--- Remove a window, collapsing splits left with one child.
+local function remove(tree, w)
+    local c = find(tree.children, w)
+    if not c then return end
+    local list = siblings_of(tree, c)
+    table.remove(list, index_of(list, c))
+    local parent = c.parent
+    while parent and #parent.children <= 1 do
+        local outer = siblings_of(tree, parent)
+        local i = index_of(outer, parent)
+        local only = parent.children[1]
+        if only then
+            only.width_fraction, only.height_fraction = parent.width_fraction, parent.height_fraction
+            only.parent = parent.parent
+            outer[i] = only
+        else
+            table.remove(outer, i)
+        end
+        if tree.active_split == parent then tree.active_split = nil end
+        parent = parent.parent
+    end
+end
+
+--- Make new windows open beside (horizontal) or below (vertical) `w`: wrap
+--- it in a split of that direction, unless it's in one already.
+local function split_at(tree, w, layout)
+    local c = w and find(tree.children, w)
+    if not c then
+        tree.layout, tree.active_split = layout, nil
         return
     end
-
-    -- Amount is already an integer from update_resize
-    if amount == 0 then return end
-
-    local is_horiz = bit.band(axis, bit.bor(WLR_EDGE_LEFT, WLR_EDGE_RIGHT)) ~= 0
-    local index = find_index(siblings, con)
-    if not index then return end
-
-    -- Find the sibling involved in this resize
-    local sibling, sib_index
-    if axis == WLR_EDGE_TOP or axis == WLR_EDGE_LEFT then
-        if index > 1 then
-            sibling = siblings[index - 1]
-            sib_index = index - 1
-        end
-    else
-        if index < #siblings then
-            sibling = siblings[index + 1]
-            sib_index = index + 1
-        end
-    end
-
-    if not sibling then return end
-
-    if is_horiz then
-        -- Calculate child_total from current widths (more reliable than stored value)
-        local child_total = 0
-        for _, child in ipairs(siblings) do
-            child_total = child_total + child.width
-        end
-        if child_total <= 0 then return end
-
-        -- Check minimum sizes (use integers)
-        local con_new_width = con.width + amount
-        local sib_new_width = sibling.width - amount
-        if con_new_width < 50 or sib_new_width < 50 then
-            return
-        end
-
-        -- FIRST: Snap ALL siblings' fractions to current widths
-        -- This ensures consistent state before applying delta
-        for _, child in ipairs(siblings) do
-            child.width_fraction = child.width / child_total
-        end
-
-        -- THEN: Apply the resize to just con and sibling
-        con.width_fraction = con_new_width / child_total
-        sibling.width_fraction = sib_new_width / child_total
-    else
-        -- Calculate child_total from current heights
-        local child_total = 0
-        for _, child in ipairs(siblings) do
-            child_total = child_total + child.height
-        end
-        if child_total <= 0 then return end
-
-        -- Check minimum sizes
-        local con_new_height = con.height + amount
-        local sib_new_height = sibling.height - amount
-        if con_new_height < 50 or sib_new_height < 50 then
-            return
-        end
-
-        -- Snap ALL siblings' fractions first
-        for _, child in ipairs(siblings) do
-            child.height_fraction = child.height / child_total
-        end
-
-        -- Then apply the resize
-        con.height_fraction = con_new_height / child_total
-        sibling.height_fraction = sib_new_height / child_total
-    end
-end
-
--- Find the container that can be resized in the given direction
--- (Sway's container_find_resize_parent from resize.c)
-local function find_resize_parent(container, edge, tiling_state)
-    local is_horiz = is_horizontal_edge(edge)
-    local parallel_layout = is_horiz and "horizontal" or "vertical"
-
-    -- Determine if we're allowed to be first/last child based on edge direction
-    -- LEFT/TOP edge means we need a sibling to the left/top (so we can't be first)
-    -- RIGHT/BOTTOM edge means we need a sibling to the right/bottom (so we can't be last)
-    local allow_first = bit.band(edge, bit.bor(WLR_EDGE_TOP, WLR_EDGE_LEFT)) == 0
-    local allow_last = bit.band(edge, bit.bor(WLR_EDGE_RIGHT, WLR_EDGE_BOTTOM)) == 0
-
-    local current = container
-    while current do
-        local parent = current.parent
-        local children_list = parent and parent.children or tiling_state.children
-        local layout = parent and parent.layout or tiling_state.layout
-
-        -- Check if this container's parent has the right layout and position
-        if layout == parallel_layout and #children_list > 1 then
-            local idx = find_index(children_list, current)
-            if idx then
-                local is_first = (idx == 1)
-                local is_last = (idx == #children_list)
-
-                -- Can resize if:
-                -- - We're not first, OR first is allowed (resizing right/bottom edge)
-                -- - We're not last, OR last is allowed (resizing left/top edge)
-                if (allow_first or not is_first) and (allow_last or not is_last) then
-                    return current, children_list, idx
-                end
-            end
-        end
-
-        current = parent
-    end
-
-    return nil, nil, nil
-end
-
---------------------------------------------------------------------------------
--- Sway's Arrange Algorithm (from arrange.c)
---------------------------------------------------------------------------------
-
--- Forward declaration
-local arrange_container
-
--- Apply horizontal layout to children (Sway's apply_horiz_layout)
-local function apply_horiz_layout(children, parent_box, inner_gap)
-    if #children == 0 then return end
-
-    -- Count new children and current width fraction sum
-    local new_children = 0
-    local current_width_fraction = 0
-    for _, child in ipairs(children) do
-        current_width_fraction = current_width_fraction + child.width_fraction
-        if child.width_fraction <= 0 then
-            new_children = new_children + 1
-        end
-    end
-
-    -- Assign fractions to new children
-    for _, child in ipairs(children) do
-        if child.width_fraction <= 0 then
-            if current_width_fraction <= 0 then
-                child.width_fraction = 1.0
-            elseif #children > new_children then
-                child.width_fraction = current_width_fraction / (#children - new_children)
-            else
-                child.width_fraction = current_width_fraction
-            end
-        end
-    end
-
-    -- Calculate total fraction (but DON'T mutate fractions like we were doing!)
-    -- Sway uses fractions proportionally: width = fraction / total * available
-    local total_width_fraction = 0
-    for _, child in ipairs(children) do
-        total_width_fraction = total_width_fraction + child.width_fraction
-    end
-    if total_width_fraction <= 0 then
-        total_width_fraction = 1.0
-    end
-
-    -- Calculate total gap
-    local total_gap = inner_gap * math.max(0, #children - 1)
-    local child_total_width = parent_box.width - total_gap
-
-    -- Position children using proportional fractions (like Sway)
-    local child_x = parent_box.x
-    for i, child in ipairs(children) do
-        -- Store child_total_width for resize calculations (like Sway does)
-        child.child_total_width = child_total_width
-
-        child.x = math.floor(child_x)
-        child.y = parent_box.y
-        -- Use proportional calculation: fraction / total * available
-        child.width = math.floor(child.width_fraction / total_width_fraction * child_total_width)
-        child.height = parent_box.height
-
-        -- Last child gets remaining width (avoids rounding errors)
-        if i == #children then
-            child.width = parent_box.x + parent_box.width - child.x
-        end
-
-        child_x = child_x + child.width + inner_gap
-
-        -- Recurse into child containers
-        arrange_container(child, inner_gap)
-    end
-end
-
--- Apply vertical layout to children (Sway's apply_vert_layout)
-local function apply_vert_layout(children, parent_box, inner_gap)
-    if #children == 0 then return end
-
-    -- Count new children and current height fraction sum
-    local new_children = 0
-    local current_height_fraction = 0
-    for _, child in ipairs(children) do
-        current_height_fraction = current_height_fraction + child.height_fraction
-        if child.height_fraction <= 0 then
-            new_children = new_children + 1
-        end
-    end
-
-    -- Assign fractions to new children
-    for _, child in ipairs(children) do
-        if child.height_fraction <= 0 then
-            if current_height_fraction <= 0 then
-                child.height_fraction = 1.0
-            elseif #children > new_children then
-                child.height_fraction = current_height_fraction / (#children - new_children)
-            else
-                child.height_fraction = current_height_fraction
-            end
-        end
-    end
-
-    -- Calculate total fraction (but DON'T mutate fractions!)
-    -- Sway uses fractions proportionally: height = fraction / total * available
-    local total_height_fraction = 0
-    for _, child in ipairs(children) do
-        total_height_fraction = total_height_fraction + child.height_fraction
-    end
-    if total_height_fraction <= 0 then
-        total_height_fraction = 1.0
-    end
-
-    -- Calculate total gap
-    local total_gap = inner_gap * math.max(0, #children - 1)
-    local child_total_height = parent_box.height - total_gap
-
-    -- Position children using proportional fractions (like Sway)
-    local child_y = parent_box.y
-    for i, child in ipairs(children) do
-        -- Store child_total_height for resize calculations (like Sway does)
-        child.child_total_height = child_total_height
-
-        child.x = parent_box.x
-        child.y = math.floor(child_y)
-        child.width = parent_box.width
-        -- Use proportional calculation: fraction / total * available
-        child.height = math.floor(child.height_fraction / total_height_fraction * child_total_height)
-
-        -- Last child gets remaining height (avoids rounding errors)
-        if i == #children then
-            child.height = parent_box.y + parent_box.height - child.y
-        end
-
-        child_y = child_y + child.height + inner_gap
-
-        -- Recurse into child containers
-        arrange_container(child, inner_gap)
-    end
-end
-
--- Arrange a single container (recursive)
-arrange_container = function(container, inner_gap)
-    if not container then return end
-
-    if container.type == "leaf" then
-        -- Position the actual window
-        local surface = container.surface
-        if has_scene(surface) and not surface.fullscreen then
-            local node_x = container.x
-            local node_y = container.y
-
-            -- Account for XDG geometry offset
-            local geo = geometry(surface)
-            node_x = container.x - geo.x
-            node_y = container.y - geo.y
-
-            surface:set_position(node_x, node_y)
-
-            -- Request client to resize
-            if surface.set_size then
-                surface:set_size(container.width, container.height)
-            end
-
-            -- Clip until the client catches up with the new size, so it
-            -- never draws over its neighbours.
-            surface:set_clip({ x = geo.x, y = geo.y, width = container.width, height = container.height })
-        end
+    if c.parent and c.parent.layout == layout then
+        tree.active_split = c.parent
         return
     end
+    local s = split(layout, {})
+    for _, k in ipairs({ "width_fraction", "height_fraction", "x", "y", "width", "height" }) do s[k] = c[k] end
+    local list = siblings_of(tree, c)
+    list[index_of(list, c)] = s
+    s.parent = c.parent
+    c.parent = s
+    c.width_fraction, c.height_fraction = 1, 1
+    s.children[1] = c
+    tree.active_split = s
+end
 
-    -- Split container - arrange children
+--------------------------------------------------------------------------------
+-- Arranging (Sway's arrange.c)
+--------------------------------------------------------------------------------
+
+local arrange_children
+
+-- Lay children out along one axis of `box`: proportional to their fractions,
+-- new children getting the average share.
+local function lay_out(children, box, gap, horizontal)
+    local n = #children
+    if n == 0 then return end
+    local frac = horizontal and "width_fraction" or "height_fraction"
+    local total, fresh = 0, 0
+    for _, c in ipairs(children) do
+        total = total + c[frac]
+        if c[frac] <= 0 then fresh = fresh + 1 end
+    end
+    for _, c in ipairs(children) do
+        if c[frac] <= 0 then
+            c[frac] = total <= 0 and 1 or (n > fresh and total / (n - fresh) or total)
+        end
+    end
+    total = 0
+    for _, c in ipairs(children) do total = total + c[frac] end
+
+    local available = (horizontal and box.width or box.height) - gap * (n - 1)
+    local pos = horizontal and box.x or box.y
+    for i, c in ipairs(children) do
+        local size = math.floor(c[frac] / total * available)
+        if horizontal then
+            c.x, c.y, c.height = math.floor(pos), box.y, box.height
+            c.width = i == n and box.x + box.width - c.x or size
+            pos = pos + c.width + gap
+        else
+            c.x, c.y, c.width = box.x, math.floor(pos), box.width
+            c.height = i == n and box.y + box.height - c.y or size
+            pos = pos + c.height + gap
+        end
+        arrange_children(c, gap)
+    end
+end
+
+-- Place a leaf's window in its box, or recurse into a split.
+arrange_children = function(c, gap)
+    if c.type == "split" then
+        lay_out(c.children, c, gap, c.layout == "horizontal")
+        return
+    end
+    local w = c.window
+    if w.fullscreen or not w.geometry then return end
+    local g = w:geometry()
+    w:set_position(c.x - g.x, c.y - g.y)
+    w:set_size(c.width, c.height)
+    -- Clip until the client catches up with the new size, so it never
+    -- draws over its neighbours.
+    w:set_clip({ x = g.x, y = g.y, width = c.width, height = c.height })
+end
+
+local function arrange(space)
+    local tree = space.data.tree
+    if not tree then return end
+    local area = space.output.usable
+    local gaps = tiling.gaps
+    local inner, outer = gaps.inner or 4, gaps.outer or 4
+    if gaps.smart and count(tree.children) == 1 then inner, outer = 0, 0 end
     local box = {
-        x = container.x,
-        y = container.y,
-        width = container.width,
-        height = container.height,
+        x = area.x + outer, y = area.y + outer,
+        width = area.width - outer * 2, height = area.height - outer * 2,
     }
-
-    if container.layout == "horizontal" then
-        apply_horiz_layout(container.children, box, inner_gap)
-    else
-        apply_vert_layout(container.children, box, inner_gap)
-    end
-end
-
--- Arrange the entire workspace
-local function arrange_workspace(space)
-    local ts = space.data.tiling
-    if not ts then return end
-
-    local output = space.output
-    if not output then return end
-
-    local area = output.usable
-
-    -- Get gap configuration
-    local gaps = tiling.gaps or { inner = 4, outer = 4, smart = true }
-    local inner_gap = gaps.inner or 4
-    local outer_gap = gaps.outer or 4
-
-    -- Smart gaps: no gaps if single window
-    local window_count = count_leaves_in_list(ts.children)
-    if gaps.smart and window_count == 1 then
-        outer_gap = 0
-        inner_gap = 0
-    end
-
-    -- Calculate usable area (workspace box with outer gaps applied)
-    local workspace_box = {
-        x = area.x + outer_gap,
-        y = area.y + outer_gap,
-        width = area.width - (outer_gap * 2),
-        height = area.height - (outer_gap * 2),
-    }
-
-    -- Apply layout to top-level children
-    if ts.layout == "horizontal" then
-        apply_horiz_layout(ts.children, workspace_box, inner_gap)
-    else
-        apply_vert_layout(ts.children, workspace_box, inner_gap)
-    end
+    lay_out(tree.children, box, inner, tree.layout == "horizontal")
 end
 
 --------------------------------------------------------------------------------
--- Window Insertion (Sway sibling-based insertion)
+-- Resizing (Sway's resize.c)
 --------------------------------------------------------------------------------
 
--- Add a new surface as a sibling of the focused container
-local function add_window(tiling_state, surface, focused_surface)
-    local new_container = create_leaf(surface)
-    -- width_fraction and height_fraction are 0, will be assigned during arrange
-
-    if #tiling_state.children == 0 then
-        -- First window: add directly to workspace
-        table.insert(tiling_state.children, new_container)
-        return new_container
-    end
-
-    -- Find the focused container
-    local focused_container = nil
-    if focused_surface then
-        focused_container = find_in_children(tiling_state.children, focused_surface)
-    end
-
-    if not focused_container then
-        -- No focus or not found, add to end of workspace
-        table.insert(tiling_state.children, new_container)
-        return new_container
-    end
-
-    local active_split = tiling_state.active_split
-    if active_split and active_split.type == "split" and split_in_tiling_state(tiling_state, active_split) then
-        local idx = find_index(active_split.children, focused_container)
-        if idx then
-            table.insert(active_split.children, idx + 1, new_container)
-        else
-            table.insert(active_split.children, new_container)
+-- The container to resize for `edge` (one of LEFT/RIGHT/TOP/BOTTOM): the
+-- nearest ancestor-or-self in a split along that axis with a sibling on
+-- that side. Returns it and its sibling list.
+local function resize_target(tree, c, edge)
+    local layout = bit.band(edge, HORIZONTAL_EDGES) ~= 0 and "horizontal" or "vertical"
+    local before = bit.band(edge, bit.bor(LEFT, TOP)) ~= 0
+    while c do
+        local list = siblings_of(tree, c)
+        if layout_of(tree, c) == layout and #list > 1 then
+            local i = index_of(list, c)
+            if (before and i > 1) or (not before and i < #list) then return c, list end
         end
-        new_container.parent = active_split
-        return new_container
+        c = c.parent
     end
-    tiling_state.active_split = nil
-
-    -- Add as sibling to the focused container
-    local parent = focused_container.parent
-    if parent then
-        -- Focused is inside a split container - add to that split
-        local idx = find_index(parent.children, focused_container)
-        if idx then
-            table.insert(parent.children, idx + 1, new_container)
-            new_container.parent = parent
-        else
-            table.insert(parent.children, new_container)
-            new_container.parent = parent
-        end
-    else
-        -- Focused is a top-level container - add to workspace children
-        local idx = find_index(tiling_state.children, focused_container)
-        if idx then
-            table.insert(tiling_state.children, idx + 1, new_container)
-        else
-            table.insert(tiling_state.children, new_container)
-        end
-    end
-
-    return new_container
 end
 
-local function create_split_around_container(tiling_state, container, layout)
-    if not container then
-        tiling_state.layout = layout
-        tiling_state.active_split = nil
-        return true
-    end
-
-    local parent = container.parent
-    if parent and parent.layout == layout then
-        tiling_state.active_split = parent
-        return true
-    end
-
-    local split = create_split(layout, { container })
-    split.width_fraction = container.width_fraction
-    split.height_fraction = container.height_fraction
-    split.x = container.x
-    split.y = container.y
-    split.width = container.width
-    split.height = container.height
-    container.width_fraction = 1
-    container.height_fraction = 1
-    container.parent = split
-
-    if parent then
-        local idx = find_index(parent.children, container)
-        if not idx then
-            return false
-        end
-        parent.children[idx] = split
-        split.parent = parent
-    else
-        local idx = find_index(tiling_state.children, container)
-        if not idx then
-            return false
-        end
-        tiling_state.children[idx] = split
-        split.parent = nil
-    end
-
-    tiling_state.active_split = split
+-- Grow `c` by `amount` pixels towards `edge`, taking it from the sibling
+-- on that side.
+local function resize_by(c, list, edge, amount)
+    if amount == 0 then return false end
+    local horizontal = bit.band(edge, HORIZONTAL_EDGES) ~= 0
+    local i = index_of(list, c)
+    local sibling = list[bit.band(edge, bit.bor(LEFT, TOP)) ~= 0 and i - 1 or i + 1]
+    if not sibling then return false end
+    local dim = horizontal and "width" or "height"
+    local frac = dim .. "_fraction"
+    if c[dim] + amount < MIN_SIZE or sibling[dim] - amount < MIN_SIZE then return false end
+    local total = 0
+    for _, x in ipairs(list) do total = total + x[dim] end
+    if total <= 0 then return false end
+    for _, x in ipairs(list) do x[frac] = x[dim] / total end
+    c[frac] = (c[dim] + amount) / total
+    sibling[frac] = (sibling[dim] - amount) / total
     return true
 end
 
 --------------------------------------------------------------------------------
--- Window Removal
+-- Neighbours, for keyboard commands
 --------------------------------------------------------------------------------
 
--- Remove a surface from the tree, cleaning up empty containers
-local function remove_window(tiling_state, surface)
-    -- Find the container
-    local container = find_in_children(tiling_state.children, surface)
-    if not container then return end
+local DIRECTIONS = {
+    left = { edge = LEFT, dx = -1, dy = 0 },
+    right = { edge = RIGHT, dx = 1, dy = 0 },
+    up = { edge = TOP, dx = 0, dy = -1 },
+    down = { edge = BOTTOM, dx = 0, dy = 1 },
+}
 
-    local parent = container.parent
-
-    if not parent then
-        -- Top-level container - remove from workspace children
-        for i, child in ipairs(tiling_state.children) do
-            if child == container then
-                table.remove(tiling_state.children, i)
-                break
-            end
-        end
-        return
-    end
-
-    -- Remove from parent's children
-    for i, child in ipairs(parent.children) do
-        if child == container then
-            table.remove(parent.children, i)
-            break
-        end
-    end
-
-    -- If parent now has only one child, collapse it
-    if #parent.children == 1 then
-        local remaining = parent.children[1]
-        remaining.width_fraction = parent.width_fraction
-        remaining.height_fraction = parent.height_fraction
-
-        local grandparent = parent.parent
-        if grandparent then
-            -- Replace parent with remaining child in grandparent
-            for i, child in ipairs(grandparent.children) do
-                if child == parent then
-                    grandparent.children[i] = remaining
-                    remaining.parent = grandparent
-                    break
-                end
-            end
+-- The leaf nearest to `c` in a direction: past c's edge on that side,
+-- overlapping it on the other axis, closest first.
+local function neighbour(tree, c, direction)
+    local d = DIRECTIONS[direction]
+    local best, best_distance = nil, math.huge
+    each_leaf(tree.children, function(o)
+        if o == c or o.window.fullscreen then return end
+        local distance, overlap
+        if d.dx ~= 0 then
+            distance = d.dx < 0 and c.x - (o.x + o.width) or o.x - (c.x + c.width)
+            overlap = math.min(c.y + c.height, o.y + o.height) - math.max(c.y, o.y)
         else
-            -- Parent was top-level, replace in workspace children
-            for i, child in ipairs(tiling_state.children) do
-                if child == parent then
-                    tiling_state.children[i] = remaining
-                    remaining.parent = nil
-                    break
-                end
-            end
+            distance = d.dy < 0 and c.y - (o.y + o.height) or o.y - (c.y + c.height)
+            overlap = math.min(c.x + c.width, o.x + o.width) - math.max(c.x, o.x)
         end
-    elseif #parent.children == 0 then
-        -- Parent is now empty, remove it recursively
-        -- (This handles nested empty containers)
-        local dummy_surface = { _dummy = true }
-        parent.surface = dummy_surface
-        parent.type = "leaf"
-        remove_window(tiling_state, dummy_surface)
-    end
+        if distance >= 0 and overlap > 0 and distance < best_distance then
+            best, best_distance = o, distance
+        end
+    end)
+    return best
 end
 
 --------------------------------------------------------------------------------
--- Tiling Layout Interface
+-- The arrangement (see library/spaces)
 --------------------------------------------------------------------------------
 
--- A tree saved by shutdown (plugin remount), with windows that went away in
--- the meantime removed and the interactive state reset.
+-- A tree saved by shutdown (plugin remount), minus windows that went away.
 local function restore(saved, space)
     local present = {}
-    for _, w in ipairs(space.windows) do present[w] = true end
-    local leaves = {}
-    for _, child in ipairs(saved.children) do get_all_leaves(child, leaves) end
-    for _, leaf in ipairs(leaves) do
-        if not present[leaf.surface] then remove_window(saved, leaf.surface) end
-    end
-    saved.grabbed_surface, saved.mode = nil, "none"
-    saved.h_con, saved.h_sib, saved.h_siblings = nil, nil, nil
-    saved.v_con, saved.v_sib, saved.v_siblings = nil, nil, nil
+    for _, w in ipairs(spaces.arranged(space)) do present[w] = true end
+    local gone = {}
+    each_leaf(saved.children, function(c)
+        if not present[c.window] then gone[#gone + 1] = c.window end
+    end)
+    for _, w in ipairs(gone) do remove(saved, w) end
     return saved
 end
 
@@ -732,410 +337,178 @@ function tiling:init(space)
     local saved = self.saved and self.saved[space]
     if saved then
         self.saved[space] = nil
-        space.data.tiling = restore(saved, space)
-        return
+        space.data.tree = restore(saved, space)
+    else
+        space.data.tree = { layout = "horizontal", children = {} }
     end
-    space.data.tiling = {
-        -- Workspace-level layout (like Sway's workspace.layout)
-        layout = "horizontal", -- "horizontal" or "vertical"
-        -- Top-level tiled containers (like Sway's workspace.tiling)
-        children = {},
-
-        -- Interactive state
-        grabbed_surface = nil,
-        grab_start_x = 0,
-        grab_start_y = 0,
-        mode = "none", -- "none", "move", "resize"
-
-        -- Resize state (exactly matching Sway's seatop_resize_tiling_event)
-        edge = 0,              -- Full edge flags
-        edge_x = 0,            -- Horizontal component (LEFT|RIGHT)
-        edge_y = 0,            -- Vertical component (TOP|BOTTOM)
-        ref_lx = 0,            -- Cursor X at START (never updated!)
-        ref_ly = 0,            -- Cursor Y at START (never updated!)
-        -- Horizontal resize state
-        h_con = nil,           -- Container being resized horizontally
-        h_sib = nil,           -- Sibling for horizontal resize
-        h_con_orig_width = 0,  -- Original width at start
-        h_siblings = nil,      -- All siblings for snapping
-        -- Vertical resize state
-        v_con = nil,           -- Container being resized vertically
-        v_sib = nil,           -- Sibling for vertical resize
-        v_con_orig_height = 0, -- Original height at start
-        v_siblings = nil,      -- All siblings for snapping
-    }
 end
 
 function tiling:shutdown(space)
-    if self.saved and space.data.tiling then
-        -- Drop trees of spaces that are gone, then keep this one.
-        local live = {}
-        for _, o in ipairs(boring.outputs()) do
-            for _, other in ipairs(spaces.list(o)) do live[other] = true end
-        end
-        for other in pairs(self.saved) do
-            if not live[other] then self.saved[other] = nil end
-        end
-        self.saved[space] = space.data.tiling
+    local tree = space.data.tree
+    space.data.tree = nil
+    for _, w in ipairs(space.windows) do w:set_clip(nil) end
+    if not (self.saved and tree) then return end
+    -- Keep this tree; drop those of spaces that are gone.
+    local live = {}
+    for _, o in ipairs(boring.outputs()) do
+        for _, other in ipairs(spaces.list(o)) do live[other] = true end
     end
-    space.data.tiling = nil
+    for other in pairs(self.saved) do
+        if not live[other] then self.saved[other] = nil end
+    end
+    self.saved[space] = tree
 end
 
---------------------------------------------------------------------------------
--- Window Lifecycle
---------------------------------------------------------------------------------
-
-function tiling:add(space, surface)
-    local ts = space.data.tiling
-
-    -- Already in a restored tree.
-    if find_in_children(ts.children, surface) then
-        arrange_workspace(space)
-        return
+function tiling:add(space, w)
+    local tree = space.data.tree
+    if not find(tree.children, w) then -- not already in a restored tree
+        local focused = boring.focused()
+        if focused and spaces.of(focused) ~= space then focused = nil end
+        add(tree, w, focused)
     end
-
-    -- New windows go next to the focused one, if it's in this space.
-    local focused = boring.focused()
-    if focused and spaces.of(focused) ~= space then focused = nil end
-
-    -- Add as sibling
-    add_window(ts, surface, focused)
-
-    -- Arrange the workspace
-    arrange_workspace(space)
+    arrange(space)
 end
 
-function tiling:remove(space, surface)
-    local ts = space.data.tiling
-
-    -- Clear grab if this surface was grabbed
-    if ts.grabbed_surface == surface then
-        ts.grabbed_surface = nil
-        ts.mode = "none"
-    end
-
-    -- Remove from tree
-    remove_window(ts, surface)
-
-    -- Arrange the workspace
-    arrange_workspace(space)
+function tiling:remove(space, w)
+    w:set_clip(nil)
+    remove(space.data.tree, w)
+    arrange(space)
 end
 
-function tiling:arrange(space)
-    arrange_workspace(space)
+function tiling:arrange(space) arrange(space) end
+
+-- After a commit, keep the window where its tile is (its geometry offset
+-- may have changed).
+function tiling:commit(space, w)
+    local c = find(space.data.tree.children, w)
+    if not c then return end
+    local g = w:geometry()
+    w:set_position(c.x - g.x, c.y - g.y)
 end
 
-function tiling:split(space, surface, layout)
-    if layout ~= "horizontal" and layout ~= "vertical" then
-        return false
-    end
-
-    local ts = space.data.tiling
-    if not ts then return false end
-
-    local container = surface and find_in_children(ts.children, surface) or nil
-    local ok = create_split_around_container(ts, container, layout)
-    if ok then
-        arrange_workspace(space)
-    end
-    return ok
-end
-
-function tiling:commit(space, surface)
-    -- Re-apply position for a single window (called after commits)
-    local ts = space.data.tiling
-    if not ts then return end
-
-    local container = find_in_children(ts.children, surface)
-    if not container then return end
-
-    -- Re-apply position using container's cached geometry
-    if has_scene(surface) then
-        local node_x = container.x
-        local node_y = container.y
-
-        local geo = geometry(surface)
-        node_x = container.x - geo.x
-        node_y = container.y - geo.y
-
-        surface:set_position(node_x, node_y)
-    end
-end
-
---------------------------------------------------------------------------------
--- Interactive Move (Swap Windows)
---------------------------------------------------------------------------------
-
--- Find the leaf container at a given position
-local function find_leaf_at(children, x, y)
-    for _, child in ipairs(children) do
-        if x >= child.x and x < child.x + child.width and
-            y >= child.y and y < child.y + child.height then
-            if child.type == "leaf" then
-                return child
-            else
-                return find_leaf_at(child.children, x, y)
-            end
-        end
-    end
-    return nil
-end
-
--- Dragging a window drops it on another tile: the two swap.
-function tiling:move(space, surface)
+-- Dragging a window onto another swaps them.
+function tiling:move(space, w)
     boring.grab_pointer({
-        window = surface,
+        window = w,
         cursor = "grabbing",
         finish = function(cancelled)
-            if cancelled then return end
-            local ts = space.data.tiling
-            if not ts then return end
-            local cx, cy = boring.cursor()
-            local grabbed = find_in_children(ts.children, surface)
-            local target = find_leaf_at(ts.children, cx, cy)
+            local tree = space.data.tree
+            if cancelled or not tree then return end
+            local grabbed, target = find(tree.children, w), leaf_at(tree.children, boring.cursor())
             if grabbed and target and grabbed ~= target then
-                grabbed.surface, target.surface = target.surface, grabbed.surface
-                arrange_workspace(space)
+                grabbed.window, target.window = target.window, grabbed.window
+                arrange(space)
             end
         end,
     })
 end
 
---------------------------------------------------------------------------------
--- Interactive Resize (Sway-style from resize.c and seatop_resize_tiling.c)
---------------------------------------------------------------------------------
-
--- Get the resize sibling for a container in a given direction
--- (Sway's container_get_resize_sibling from seatop_resize_tiling.c)
-local function get_resize_sibling(con, edge, siblings)
-    if not con or not siblings then return nil end
-
-    local index = find_index(siblings, con)
-    if not index then return nil end
-
-    -- LEFT/TOP edge: sibling is to the left/top (index - 1)
-    -- RIGHT/BOTTOM edge: sibling is to the right/bottom (index + 1)
-    local offset = bit.band(edge, bit.bor(WLR_EDGE_TOP, WLR_EDGE_LEFT)) ~= 0 and -1 or 1
-
-    if #siblings == 1 then
-        return nil
-    end
-
-    local sibling_idx = index + offset
-    if sibling_idx < 1 or sibling_idx > #siblings then
-        return nil
-    end
-
-    return siblings[sibling_idx]
-end
-
-local function begin_resize(space, surface, cursor_x, cursor_y, edges)
-    if not surface then return false end
-
-    local ts = space.data.tiling
-    local container = find_in_children(ts.children, surface)
-    if not container then return false end
-
-    -- If no specific edge, calculate based on cursor position relative to container center
-    if edges == 0 or edges == WLR_EDGE_NONE then
-        local cx = container.x + container.width / 2
-        local cy = container.y + container.height / 2
-
-        if cursor_x > cx then
-            edges = bit.bor(edges, WLR_EDGE_RIGHT)
-        else
-            edges = bit.bor(edges, WLR_EDGE_LEFT)
-        end
-        if cursor_y > cy then
-            edges = bit.bor(edges, WLR_EDGE_BOTTOM)
-        else
-            edges = bit.bor(edges, WLR_EDGE_TOP)
-        end
-    end
-
-    -- Store edge and reference position (NEVER updated during resize!)
-    ts.edge = edges
-    ts.ref_lx = cursor_x
-    ts.ref_ly = cursor_y
-    ts.mode = "resize"
-    ts.grabbed_surface = surface
-
-    -- Clear previous state
-    ts.h_con = nil
-    ts.h_sib = nil
-    ts.h_con_orig_width = 0
-    ts.h_siblings = nil
-    ts.v_con = nil
-    ts.v_sib = nil
-    ts.v_con_orig_height = 0
-    ts.v_siblings = nil
-
-    local found_resize = false
-
-    -- Handle horizontal resize (LEFT/RIGHT edges)
-    -- (From Sway's seatop_begin_resize_tiling lines 134-144)
-    if bit.band(edges, bit.bor(WLR_EDGE_LEFT, WLR_EDGE_RIGHT)) ~= 0 then
-        ts.edge_x = bit.band(edges, bit.bor(WLR_EDGE_LEFT, WLR_EDGE_RIGHT))
-        local h_con, h_siblings, h_idx = find_resize_parent(container, ts.edge_x, ts)
-
-        if h_con then
-            local h_sib = get_resize_sibling(h_con, ts.edge_x, h_siblings)
-            if h_sib then
-                ts.h_con = h_con
-                ts.h_sib = h_sib
-                ts.h_con_orig_width = h_con.width
-                ts.h_siblings = h_siblings
-                found_resize = true
-            end
-        end
-    end
-
-    -- Handle vertical resize (TOP/BOTTOM edges)
-    -- (From Sway's seatop_begin_resize_tiling lines 145-155)
-    if bit.band(edges, bit.bor(WLR_EDGE_TOP, WLR_EDGE_BOTTOM)) ~= 0 then
-        ts.edge_y = bit.band(edges, bit.bor(WLR_EDGE_TOP, WLR_EDGE_BOTTOM))
-        local v_con, v_siblings, _ = find_resize_parent(container, ts.edge_y, ts)
-
-        if v_con then
-            local v_sib = get_resize_sibling(v_con, ts.edge_y, v_siblings)
-            if v_sib then
-                ts.v_con = v_con
-                ts.v_sib = v_sib
-                ts.v_con_orig_height = v_con.height
-                ts.v_siblings = v_siblings
-                found_resize = true
-            end
-        end
-    end
-
-    if not found_resize then
-        ts.mode = "none"
-        ts.grabbed_surface = nil
-        return false
-    end
-
-    return true
-end
-
-local function update_resize(space, cursor_x, cursor_y)
-    local ts = space.data.tiling
-    if ts.mode ~= "resize" then
-        return
-    end
-
-    -- Calculate delta from LAST APPLIED position
-    -- Don't update ref until we actually apply a resize (to accumulate small movements)
-    local delta_x = cursor_x - ts.ref_lx
-    local delta_y = cursor_y - ts.ref_ly
-
-    local did_resize = false
-
-    -- Handle horizontal resize
-    if ts.h_con and ts.h_siblings then
-        local amount_x = 0
-        if bit.band(ts.edge, WLR_EDGE_LEFT) ~= 0 then
-            -- LEFT edge: moving right shrinks con, grows sibling
-            amount_x = -delta_x
-        elseif bit.band(ts.edge, WLR_EDGE_RIGHT) ~= 0 then
-            -- RIGHT edge: moving right grows con, shrinks sibling
-            amount_x = delta_x
-        end
-
-        -- Round to integer - only apply if >= 1 pixel
-        local rounded_x = math.floor(amount_x + 0.5)
-        if rounded_x ~= 0 then
-            container_resize_tiled(ts.h_con, ts.edge_x, rounded_x, ts.h_siblings, space)
-            -- Only update ref by the amount we actually used (in pixels)
-            if bit.band(ts.edge, WLR_EDGE_LEFT) ~= 0 then
-                ts.ref_lx = ts.ref_lx - rounded_x
-            else
-                ts.ref_lx = ts.ref_lx + rounded_x
-            end
-            did_resize = true
-        end
-    end
-
-    -- Handle vertical resize
-    if ts.v_con and ts.v_siblings then
-        local amount_y = 0
-        if bit.band(ts.edge, WLR_EDGE_TOP) ~= 0 then
-            -- TOP edge: moving up grows con
-            amount_y = -delta_y
-        elseif bit.band(ts.edge, WLR_EDGE_BOTTOM) ~= 0 then
-            -- BOTTOM edge: moving down grows con
-            amount_y = delta_y
-        end
-
-        -- Round to integer - only apply if >= 1 pixel
-        local rounded_y = math.floor(amount_y + 0.5)
-        if rounded_y ~= 0 then
-            container_resize_tiled(ts.v_con, ts.edge_y, rounded_y, ts.v_siblings, space)
-            -- Only update ref by the amount we actually used
-            if bit.band(ts.edge, WLR_EDGE_TOP) ~= 0 then
-                ts.ref_ly = ts.ref_ly - rounded_y
-            else
-                ts.ref_ly = ts.ref_ly + rounded_y
-            end
-            did_resize = true
-        end
-    end
-
-    -- Re-arrange workspace only if we resized
-    if did_resize then
-        arrange_workspace(space)
-    end
-end
-
-local function end_resize(space)
-    local ts = space.data.tiling
-    ts.grabbed_surface = nil
-    ts.mode = "none"
-    -- Clear horizontal resize state
-    ts.h_con = nil
-    ts.h_sib = nil
-    ts.h_con_orig_width = 0
-    ts.h_siblings = nil
-    -- Clear vertical resize state
-    ts.v_con = nil
-    ts.v_sib = nil
-    ts.v_con_orig_height = 0
-    ts.v_siblings = nil
-    -- Clear edge state
-    ts.edge = 0
-    ts.edge_x = 0
-    ts.edge_y = 0
-end
-
--- Dragging a window's edge moves the split next to it.
-function tiling:resize(space, surface, edges)
+-- Dragging an edge moves the split boundary on that side (both axes for a
+-- corner); with no edge given, the quadrant under the cursor decides.
+function tiling:resize(space, w, edges)
+    local tree = space.data.tree
+    local c = find(tree.children, w)
+    if not c then return end
     local cx, cy = boring.cursor()
-    if not begin_resize(space, surface, cx, cy, edges) then return end
+    if edges == 0 then
+        edges = bit.bor(cx > c.x + c.width / 2 and RIGHT or LEFT, cy > c.y + c.height / 2 and BOTTOM or TOP)
+    end
+    local axes = {}
+    for _, mask in ipairs({ HORIZONTAL_EDGES, VERTICAL_EDGES }) do
+        local edge = bit.band(edges, mask)
+        if edge ~= 0 then
+            local target, list = resize_target(tree, c, edge)
+            if target then axes[#axes + 1] = { edge = edge, target = target, list = list } end
+        end
+    end
+    if #axes == 0 then return end
+
+    local ref_x, ref_y = cx, cy
     boring.grab_pointer({
-        window = surface,
-        cursor = boring.resize_cursor(space.data.tiling.edge),
-        motion = function(x, y) update_resize(space, x, y) end,
-        finish = function()
-            if space.data.tiling then end_resize(space) end
+        window = w,
+        cursor = boring.resize_cursor(edges),
+        motion = function(x, y)
+            if not space.data.tree then return end
+            local changed = false
+            for _, a in ipairs(axes) do
+                local horizontal = bit.band(a.edge, HORIZONTAL_EDGES) ~= 0
+                local delta = horizontal and x - ref_x or y - ref_y
+                local sign = bit.band(a.edge, bit.bor(LEFT, TOP)) ~= 0 and -1 or 1
+                local amount = math.floor(delta * sign + 0.5)
+                if amount ~= 0 and resize_by(a.target, a.list, a.edge, amount) then
+                    -- Only what was applied moves the reference point.
+                    if horizontal then ref_x = ref_x + amount * sign else ref_y = ref_y + amount * sign end
+                    changed = true
+                end
+            end
+            if changed then arrange(space) end
         end,
     })
 end
 
 --------------------------------------------------------------------------------
--- Plugin Wrapper
+-- Commands on the focused window
 --------------------------------------------------------------------------------
 
-local plugin = {
-    name = "layout-tiling",
-}
+-- The focused window, its space and its leaf, if tiling manages it.
+local function focused_leaf()
+    local w = boring.focused()
+    local space = w and spaces.of(w)
+    if not space or space.impl ~= tiling or not space.data.tree then return end
+    local c = find(space.data.tree.children, w)
+    if c then return w, space, c end
+end
+
+local commands = {}
+
+function commands.split(direction)
+    local w, space = focused_leaf()
+    if not w then return end
+    split_at(space.data.tree, w, direction)
+    arrange(space)
+end
+
+function commands.focus(direction)
+    local _, space, c = focused_leaf()
+    if not c then return end
+    local n = neighbour(space.data.tree, c, direction)
+    if n then boring.focus(n.window) end
+end
+
+function commands.move(direction)
+    local _, space, c = focused_leaf()
+    if not c then return end
+    local n = neighbour(space.data.tree, c, direction)
+    if not n then return end
+    c.window, n.window = n.window, c.window
+    arrange(space)
+end
+
+function commands.resize(direction, amount)
+    local _, space, c = focused_leaf()
+    if not c then return end
+    local edge = DIRECTIONS[direction].edge
+    local target, list = resize_target(space.data.tree, c, edge)
+    if target and resize_by(target, list, edge, amount or 40) then arrange(space) end
+end
+
+--------------------------------------------------------------------------------
+-- Plugin
+--------------------------------------------------------------------------------
+
+local plugin = { name = "layout-tiling" }
 
 plugin._private = {
     layout = tiling,
-    create_leaf = create_leaf,
-    create_split = create_split,
-    add_window = add_window,
-    remove_window = remove_window,
-    find_in_children = find_in_children,
-    find_leaf_at = find_leaf_at,
+    add = add,
+    remove = remove,
+    split_at = split_at,
+    find = find,
+    leaf_at = leaf_at,
+    neighbour = neighbour,
+    lay_out = lay_out,
+    resize_target = resize_target,
+    resize_by = resize_by,
 }
 
 function plugin:mount(config, ctx)
@@ -1149,18 +522,14 @@ function plugin:mount(config, ctx)
         tiling.saved = nil
     end)
 
-    local function split(direction)
-        return function()
-            local w = boring.focused()
-            local space = w and spaces.of(w)
-            if space and space.impl == tiling then tiling:split(space, w, direction) end
-        end
-    end
     return {
         layout = tiling,
         actions = {
-            split_horizontal = split("horizontal"),
-            split_vertical = split("vertical"),
+            split_horizontal = function() commands.split("horizontal") end,
+            split_vertical = function() commands.split("vertical") end,
+            focus = function(direction) return function() commands.focus(direction) end end,
+            move = function(direction) return function() commands.move(direction) end end,
+            resize = function(direction, amount) return function() commands.resize(direction, amount) end end,
         },
     }
 end

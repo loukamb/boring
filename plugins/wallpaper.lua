@@ -10,7 +10,6 @@
 -- Keys are output names, "*", or monitor objects from monitor.new.
 
 local color = require("shared.color")
-local ffi = require("ffi")
 
 local plugin = { name = "wallpaper" }
 
@@ -69,7 +68,7 @@ function plugin:mount(config, ctx)
             return
         end
         local c = color.hex(type(value) == "string" and value or DEFAULT) or color.hex(DEFAULT)
-        local rgba = ffi.new("float[4]", { c[1] * c[4], c[2] * c[4], c[3] * c[4], c[4] })
+        local rgba = color.float4(c)
         per_output[o] = { rect = lib.wlr_scene_rect_create(boring.layers.background, 1, 1, rgba) }
         place(o)
     end

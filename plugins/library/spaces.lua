@@ -20,14 +20,20 @@
 --                                              -- the window asks to be moved/resized;
 --                                              -- without these it follows the pointer
 --
--- Fullscreen is the same for every arrangement: the window fills its
--- output until it leaves fullscreen, and then the arrangement re-arranges.
+-- Fullscreen and minimize are the same for every arrangement. A fullscreen
+-- window fills its output (library/fullscreen) until it leaves fullscreen,
+-- and then the arrangement re-arranges. A minimized window is hidden and
+-- taken out of the arrangement (`remove`) until it's focused again (a
+-- taskbar activating it, or spaces.minimize(w, false)).
 --
 -- A space is a plain table:
 --   { output, name, windows = { ... }, shown, fullscreen = w|nil,
---     arrangement = name|nil, impl = arrangement|nil, data = {} }
--- Arrangements keep their per-space state in `space.data`, and can tell
--- their windows by `spaces.of(w).impl == self`.
+--     minimized = { [w] = true }, arrangement = name|nil,
+--     impl = arrangement|nil, data = {} }
+-- `windows` includes minimized ones; arrangements see the others (`add` is
+-- only called for those, and `spaces.arranged(space)` lists them). They
+-- keep per-space state in `space.data`, and can tell their windows by
+-- `spaces.of(w).impl == self`.
 --
 -- Which arrangement a space uses: the one registered for its output's name,
 -- else one registered for every output; the last registered wins. A space
@@ -35,6 +41,8 @@
 --
 -- Events on boring.events: space:add(space), space:remove(space),
 -- space:show(space), space:window(w, space) (a window changed space).
+
+local fullscreen = require("@boring/library/fullscreen")
 
 local spaces = {}
 
@@ -80,7 +88,9 @@ local function bind(space)
     space.data = {}
     if impl then
         call(space, "init")
-        for _, w in ipairs(space.windows) do call(space, "add", w) end
+        for _, w in ipairs(space.windows) do
+            if not space.minimized[w] then call(space, "add", w) end
+        end
     end
 end
 
@@ -144,6 +154,16 @@ end
 --- The space a window is in.
 function spaces.of(w) return by_window[w] end
 
+--- The windows of a space its arrangement places (not minimized), oldest
+--- first.
+function spaces.arranged(space)
+    local list = {}
+    for _, w in ipairs(space.windows) do
+        if not space.minimized[w] then list[#list + 1] = w end
+    end
+    return list
+end
+
 --- The shown space of an output.
 function spaces.current(o)
     local s = outputs[o]
@@ -170,6 +190,7 @@ function spaces.new(o, opts)
         name = opts and opts.name,
         arrangement = opts and opts.arrangement,
         windows = {},
+        minimized = {},
         shown = false,
         fullscreen = nil,
         data = {},
@@ -182,7 +203,17 @@ end
 
 local function set_shown(space, shown)
     space.shown = shown
-    for _, w in ipairs(space.windows) do w:set_enabled(shown) end
+    for _, w in ipairs(space.windows) do w:set_enabled(shown and not space.minimized[w]) end
+end
+
+local function focus_next(space, except)
+    for _, x in ipairs(boring.windows()) do
+        if x ~= except and x:visible() then
+            boring.focus(x)
+            return
+        end
+    end
+    boring.blur()
 end
 
 local exit_fullscreen
@@ -194,7 +225,12 @@ local function detach(w)
     if space.fullscreen == w then exit_fullscreen(space, false) end
     by_window[w] = nil
     remove_from(space.windows, w)
-    call(space, "remove", w)
+    if space.minimized[w] then
+        space.minimized[w] = nil
+        w:set_enabled(true)
+    else
+        call(space, "remove", w)
+    end
     return space
 end
 
@@ -205,6 +241,23 @@ local function attach(w, space)
     call(space, "add", w)
 end
 
+--- Minimize a window (or bring it back).
+function spaces.minimize(w, on)
+    local space = by_window[w]
+    if not space or (space.minimized[w] or false) == (on and true or false) then return end
+    if on then
+        if space.fullscreen == w then exit_fullscreen(space, false) end
+        space.minimized[w] = true
+        w:set_enabled(false)
+        call(space, "remove", w)
+        if boring.focused() == w then focus_next(space, w) end
+    else
+        space.minimized[w] = nil
+        w:set_enabled(space.shown)
+        call(space, "add", w)
+    end
+end
+
 --- Move a window to another space (possibly on another output).
 function spaces.move(w, space)
     if by_window[w] == space then return end
@@ -212,13 +265,7 @@ function spaces.move(w, space)
     detach(w)
     attach(w, space)
     boring.events:emit("space:window", w, space)
-    if was_focused and not space.shown then
-        local next_w = nil
-        for _, x in ipairs(boring.windows()) do
-            if x ~= w and x:visible() then next_w = x break end
-        end
-        if next_w then boring.focus(next_w) else boring.blur() end
-    end
+    if was_focused and not space.shown then focus_next(space, w) end
 end
 
 --- Show a space, hiding the one its output showed before.
@@ -275,29 +322,15 @@ end
 local function enter_fullscreen(space, w)
     if space.fullscreen == w then return end
     if space.fullscreen then exit_fullscreen(space, true) end
-    local x, y = w:position()
-    local width, height = w:size()
-    space.saved = { window = w, x = x, y = y, width = width, height = height }
     space.fullscreen = w
-    w:set_fullscreen(true)
-    local box, g = space.output:box(), w:geometry()
-    w:set_clip(nil)
-    w:set_position(box.x - g.x, box.y - g.y)
-    w:set_size(box.width, box.height)
-    w:raise()
+    fullscreen.enter(w, space.output)
 end
 
 exit_fullscreen = function(space, rearrange)
     local w = space.fullscreen
     if not w then return end
     space.fullscreen = nil
-    w:set_fullscreen(false)
-    local saved = space.saved
-    space.saved = nil
-    if saved and saved.window == w then
-        w:set_position(saved.x, saved.y)
-        w:set_size(saved.width, saved.height)
-    end
+    fullscreen.exit(w)
     if rearrange ~= false then call(space, "arrange") end
 end
 
@@ -365,12 +398,7 @@ scope:subscribe(boring.events, "output:remove", remove_output)
 scope:subscribe(boring.events, "output:usable", function(o) each_space_of(o, spaces.arrange) end)
 scope:subscribe(boring.events, "output:change", function(o)
     each_space_of(o, function(space)
-        local w = space.fullscreen
-        if w then
-            local box, g = o:box(), w:geometry()
-            w:set_position(box.x - g.x, box.y - g.y)
-            w:set_size(box.width, box.height)
-        end
+        if space.fullscreen then fullscreen.fit(space.fullscreen, o) end
     end)
 end)
 
@@ -392,6 +420,15 @@ scope:subscribe(boring.events, "window:request_resize", function(w, edges)
     if space.impl and space.impl.resize then call(space, "resize", w, edges) else boring.begin_resize(w, edges) end
 end)
 scope:subscribe(boring.events, "window:request_fullscreen", spaces.fullscreen)
+scope:subscribe(boring.events, "window:request_minimize", function(w) spaces.minimize(w, true) end)
+-- Focusing a minimized window (a taskbar, xdg-activation) brings it back,
+-- on its space.
+scope:subscribe(boring.events, "window:focus", function(w)
+    local space = by_window[w]
+    if not space then return end
+    if space.minimized[w] then spaces.minimize(w, false) end
+    if not space.shown then spaces.show(space) end
+end)
 
 -- Loaded after startup (a reload added the first layout plugin): take the
 -- outputs and windows that are already there.
