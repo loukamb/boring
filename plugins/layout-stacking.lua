@@ -29,6 +29,9 @@
 -- Without `controls` (or with `decorations = false`) windows get no title
 -- bar. New windows open centred; dragging the title bar moves a window and
 -- double-clicking it maximizes. Maximized windows fill the usable area.
+--
+-- Window properties (w.props, e.g. from the rules plugin) it follows:
+-- size = { w, h }, position = { x, y } (in the output), maximized = true.
 
 local color = require("shared.color")
 local spaces = require("@boring/library/spaces")
@@ -202,14 +205,25 @@ local function make_stacking(config)
         -- Windows keep their place when the layout is re-registered (reload).
         if w.data.stacking_placed then return end
         w.data.stacking_placed = true
-        if w.impl.positioned then return end
-        -- Centre in the usable area, title bar included.
-        local area = space.output.usable
+        local props = w.props
         local g = w:geometry()
+        local width, h = g.width, g.height
+        if type(props.size) == "table" then
+            width, h = props.size[1] or width, props.size[2] or h
+            w:set_size(width, h)
+        end
+        local area = space.output.usable
         local top = decorated and height or 0
-        local x = area.x + math.max(0, (area.width - g.width) / 2) - g.x
-        local y = area.y + top + math.max(0, (area.height - g.height - top) / 2) - g.y
-        w:set_position(x, y)
+        if type(props.position) == "table" then
+            local box = space.output:box()
+            w:set_position(box.x + (props.position[1] or 0) - g.x, box.y + (props.position[2] or 0) - g.y)
+        elseif not w.impl.positioned then
+            -- Centre in the usable area, title bar included.
+            local x = area.x + math.max(0, (area.width - width) / 2) - g.x
+            local y = area.y + top + math.max(0, (area.height - h - top) / 2) - g.y
+            w:set_position(x, y)
+        end
+        if props.maximized then stacking.maximize(w, true) end
     end
 
     function stacking:remove(_, w)

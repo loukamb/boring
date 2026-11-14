@@ -120,10 +120,15 @@ end
 function windows.map(server, w)
     if w.mapped then return end
     w.mapped = true
-    table.insert(server.windows, 1, w)
+    server.events:emit("window:configure", w)
+    -- Unfocused windows go to the end of the focus order.
+    table.insert(server.windows, w.props.focus ~= false and 1 or #server.windows + 1, w)
     place(server, w)
     server.events:emit("window:map", w)
-    windows.focus(server, w)
+    -- Not if a plugin hid it right away (opened on another workspace).
+    if w.props.focus ~= false and w:visible() then
+        windows.focus(server, w)
+    end
 end
 
 -- The most recently focused visible window, other than `except`.

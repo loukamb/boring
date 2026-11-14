@@ -39,6 +39,9 @@
 -- else one registered for every output; the last registered wins. A space
 -- can also be given one by name (`spaces.set_arrangement`).
 --
+-- Window properties (w.props) it follows: output = name (the space it
+-- opens in), fullscreen = true.
+--
 -- Events on boring.events: space:add(space), space:remove(space),
 -- space:show(space), space:window(w, space) (a window changed space).
 
@@ -383,9 +386,17 @@ end
 
 local function add_window(w)
     if by_window[w] then return end
-    local o = output_of(w)
+    local o = nil
+    if w.props.output then
+        for _, x in ipairs(boring.outputs()) do
+            if x.name == w.props.output then o = x end
+        end
+    end
+    o = o or output_of(w)
     local space = o and spaces.current(o)
-    if space then attach(w, space) end
+    if not space then return end
+    attach(w, space)
+    if w.props.fullscreen then enter_fullscreen(space, w) end
 end
 
 local function each_space_of(o, fn)

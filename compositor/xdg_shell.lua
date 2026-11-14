@@ -41,6 +41,11 @@ local function toplevel_impl(xt)
         set_maximized = function(on)
             if base.initialized then xt:set_maximized(on) end
         end,
+        set_tiled = function(on)
+            if base.initialized then
+                xt:set_tiled(on and bit.bor(C.WLR_EDGE_TOP, C.WLR_EDGE_BOTTOM, C.WLR_EDGE_LEFT, C.WLR_EDGE_RIGHT) or 0)
+            end
+        end,
         close = function() xt:send_close() end,
         title = function() return wl.string(xt.title) end,
         app_id = function() return wl.string(xt.app_id) end,

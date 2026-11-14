@@ -11,9 +11,12 @@
 --   ["Mod4+Ctrl+h"] = tiling.actions.resize("left", 40),  -- grow towards a side
 --   ["Mod4+b"] = tiling.actions.split_horizontal,     -- next window goes beside
 --   ["Mod4+v"] = tiling.actions.split_vertical,       -- next window goes below
+--   ["Mod4+space"] = tiling.actions.toggle_floating,
 --
 -- New windows go next to the focused one, in its split. Dragging a window
--- onto another swaps them; dragging an edge resizes the split.
+-- onto another swaps them; dragging an edge resizes the split. Floating
+-- windows (toggle_floating, or w.props.floating from the rules plugin) stay
+-- out of the tree, on top, and move freely.
 
 local bit = require("bit")
 local C = require("ffi").C
@@ -222,6 +225,7 @@ arrange_children = function(c, gap)
     end
     local w = c.window
     if w.fullscreen or not w.geometry then return end
+    w:set_tiled(true)
     local g = w:geometry()
     w:set_position(c.x - g.x, c.y - g.y)
     w:set_size(c.width, c.height)
@@ -346,7 +350,10 @@ end
 function tiling:shutdown(space)
     local tree = space.data.tree
     space.data.tree = nil
-    for _, w in ipairs(space.windows) do w:set_clip(nil) end
+    for _, w in ipairs(space.windows) do
+        w:set_clip(nil)
+        w:set_tiled(false)
+    end
     if not (self.saved and tree) then return end
     -- Keep this tree; drop those of spaces that are gone.
     local live = {}
@@ -359,8 +366,25 @@ function tiling:shutdown(space)
     self.saved[space] = tree
 end
 
+-- A floating window: centred in the usable area, above the tiles.
+local function float(space, w)
+    local area, g = space.output.usable, w:geometry()
+    if type(w.props.size) == "table" then w:set_size(w.props.size[1], w.props.size[2]) end
+    local width = type(w.props.size) == "table" and w.props.size[1] or g.width
+    local height = type(w.props.size) == "table" and w.props.size[2] or g.height
+    w:set_clip(nil)
+    w:set_tiled(false)
+    w:set_position(area.x + math.max(0, (area.width - width) / 2) - g.x,
+        area.y + math.max(0, (area.height - height) / 2) - g.y)
+    w:raise()
+end
+
 function tiling:add(space, w)
     local tree = space.data.tree
+    if w.props.floating then
+        float(space, w)
+        return
+    end
     if not find(tree.children, w) then -- not already in a restored tree
         local focused = boring.focused()
         if focused and spaces.of(focused) ~= space then focused = nil end
@@ -371,6 +395,7 @@ end
 
 function tiling:remove(space, w)
     w:set_clip(nil)
+    w:set_tiled(false)
     remove(space.data.tree, w)
     arrange(space)
 end
@@ -388,6 +413,7 @@ end
 
 -- Dragging a window onto another swaps them.
 function tiling:move(space, w)
+    if not find(space.data.tree.children, w) then return boring.begin_move(w) end
     boring.grab_pointer({
         window = w,
         cursor = "grabbing",
@@ -408,7 +434,7 @@ end
 function tiling:resize(space, w, edges)
     local tree = space.data.tree
     local c = find(tree.children, w)
-    if not c then return end
+    if not c then return boring.begin_resize(w, edges) end
     local cx, cy = boring.cursor()
     if edges == 0 then
         edges = bit.bor(cx > c.x + c.width / 2 and RIGHT or LEFT, cy > c.y + c.height / 2 and BOTTOM or TOP)
@@ -484,6 +510,21 @@ function commands.move(direction)
     arrange(space)
 end
 
+function commands.toggle_floating()
+    local w = boring.focused()
+    local space = w and spaces.of(w)
+    if not space or space.impl ~= tiling or w.fullscreen then return end
+    w.props.floating = not w.props.floating
+    if w.props.floating then
+        remove(space.data.tree, w)
+        arrange(space)
+        float(space, w)
+    else
+        add(space.data.tree, w, nil)
+        arrange(space)
+    end
+end
+
 function commands.resize(direction, amount)
     local _, space, c = focused_leaf()
     if not c then return end
@@ -527,6 +568,7 @@ function plugin:mount(config, ctx)
         actions = {
             split_horizontal = function() commands.split("horizontal") end,
             split_vertical = function() commands.split("vertical") end,
+            toggle_floating = commands.toggle_floating,
             focus = function(direction) return function() commands.focus(direction) end end,
             move = function(direction) return function() commands.move(direction) end end,
             resize = function(direction, amount) return function() commands.resize(direction, amount) end end,

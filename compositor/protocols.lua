@@ -200,18 +200,22 @@ protocols.list = {
             "zwp_idle_inhibit_manager_v1", "zwp_idle_inhibitor_v1" },
         setup = function(server)
             local notifier = lib.wlr_idle_notifier_v1_create(server.display)
+            local idle = require("compositor.idle")
             server.on_activity = function()
                 lib.wlr_idle_notifier_v1_notify_activity(notifier, server.seat)
+                idle.activity(server)
             end
             local inhibit = lib.wlr_idle_inhibit_v1_create(server.display)
             local count = 0
             server.scope:listen(inhibit.events.new_inhibitor, function(inhibitor)
                 count = count + 1
                 lib.wlr_idle_notifier_v1_set_inhibited(notifier, true)
+                idle.set_inhibitors(server, count)
                 local scope = server.scope:child("idle inhibitor")
                 scope:listen(inhibitor.events.destroy, function()
                     count = count - 1
                     lib.wlr_idle_notifier_v1_set_inhibited(notifier, count > 0)
+                    idle.set_inhibitors(server, count)
                     scope:close()
                 end)
             end, "struct wlr_idle_inhibitor_v1")

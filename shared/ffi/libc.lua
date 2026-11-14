@@ -11,6 +11,8 @@ ffi.cdef [[
 typedef unsigned long int __ino_t;
 typedef unsigned int __mode_t;
 typedef int __clockid_t;
+typedef unsigned int __socklen_t;
+typedef __socklen_t socklen_t;
 extern int close(int __fd);
 extern ssize_t read(int __fd, void *__buf, size_t __nbytes);
 extern ssize_t write(int __fd, const void *__buf, size_t __n);
@@ -21,7 +23,9 @@ extern int execvp(const char *__file, char *const __argv[]);
 extern void _exit(int __status);
 extern __pid_t getpid(void);
 extern __pid_t setsid(void);
+extern __uid_t getuid(void);
 extern __pid_t fork(void);
+extern int unlink(const char *__name);
 extern int ftruncate(int __fd, __off_t __length);
 typedef __mode_t mode_t;
 typedef __clockid_t clockid_t;
@@ -71,6 +75,7 @@ struct inotify_event {
 extern int inotify_init1(int __flags);
 extern int inotify_add_watch(int __fd, const char *__name, uint32_t __mask);
 extern int inotify_rm_watch(int __fd, int __wd);
+extern int chmod(const char *__file, __mode_t __mode);
 struct statx_timestamp {
     __s64 tv_sec;
     __u32 tv_nsec;
@@ -115,6 +120,51 @@ extern void *mmap(void *__addr, size_t __len, int __prot, int __flags, int __fd,
 extern int munmap(void *__addr, size_t __len);
 extern int shm_open(const char *__name, int __oflag, mode_t __mode);
 extern int shm_unlink(const char *__name);
+typedef unsigned short int sa_family_t;
+struct sockaddr {
+    sa_family_t sa_family;
+    char sa_data[14];
+};
+typedef union {
+    struct sockaddr *__sockaddr__;
+    struct sockaddr_at *__sockaddr_at__;
+    struct sockaddr_ax25 *__sockaddr_ax25__;
+    struct sockaddr_dl *__sockaddr_dl__;
+    struct sockaddr_eon *__sockaddr_eon__;
+    struct sockaddr_in *__sockaddr_in__;
+    struct sockaddr_in6 *__sockaddr_in6__;
+    struct sockaddr_inarp *__sockaddr_inarp__;
+    struct sockaddr_ipx *__sockaddr_ipx__;
+    struct sockaddr_iso *__sockaddr_iso__;
+    struct sockaddr_ns *__sockaddr_ns__;
+    struct sockaddr_un *__sockaddr_un__;
+    struct sockaddr_x25 *__sockaddr_x25__;
+} __SOCKADDR_ARG;
+typedef union {
+    const struct sockaddr *__sockaddr__;
+    const struct sockaddr_at *__sockaddr_at__;
+    const struct sockaddr_ax25 *__sockaddr_ax25__;
+    const struct sockaddr_dl *__sockaddr_dl__;
+    const struct sockaddr_eon *__sockaddr_eon__;
+    const struct sockaddr_in *__sockaddr_in__;
+    const struct sockaddr_in6 *__sockaddr_in6__;
+    const struct sockaddr_inarp *__sockaddr_inarp__;
+    const struct sockaddr_ipx *__sockaddr_ipx__;
+    const struct sockaddr_iso *__sockaddr_iso__;
+    const struct sockaddr_ns *__sockaddr_ns__;
+    const struct sockaddr_un *__sockaddr_un__;
+    const struct sockaddr_x25 *__sockaddr_x25__;
+} __CONST_SOCKADDR_ARG;
+extern int socket(int __domain, int __type, int __protocol);
+extern int bind(int __fd, __CONST_SOCKADDR_ARG __addr, socklen_t __len);
+extern int connect(int __fd, __CONST_SOCKADDR_ARG __addr, socklen_t __len);
+extern int listen(int __fd, int __n);
+extern int accept4(int __fd, __SOCKADDR_ARG __addr, socklen_t *__addr_len, int __flags);
+extern int shutdown(int __fd, int __how);
+struct sockaddr_un {
+    sa_family_t sun_family;
+    char sun_path[108];
+};
 enum {
     IN_ACCESS = 1,
     IN_MODIFY = 2,
@@ -161,13 +211,20 @@ enum {
     PROT_READ = 1,
     PROT_WRITE = 2,
     MAP_SHARED = 1,
-    CLOCK_MONOTONIC = 1
+    CLOCK_MONOTONIC = 1,
+    AF_UNIX = 1,
+    SOCK_STREAM = 1,
+    SOCK_CLOEXEC = 524288,
+    SOCK_NONBLOCK = 2048,
+    SHUT_WR = 1,
+    EAGAIN = 11,
+    EINTR = 4
 };
 ]]
 
 return {
     structs = {
-        "dirent", "inotify_event", "pollfd", "statx",
-        "statx_timestamp",
+        "dirent", "inotify_event", "pollfd", "sockaddr",
+        "sockaddr_un", "statx", "statx_timestamp",
     },
 }

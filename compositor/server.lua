@@ -82,7 +82,7 @@ end
 
 --- Tear everything down, in reverse order of creation.
 function server.destroy(s)
-    require("compositor.timer").cancel_all()
+    require("compositor.loop").cancel_all()
     s.scope:close()
     lib.wl_display_destroy_clients(s.display)
     s.scene.tree.node:destroy()

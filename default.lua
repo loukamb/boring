@@ -56,6 +56,10 @@ input.mouse.new({
 -- Load xwayland.
 plugin("@boring/xwayland"):mount()
 
+-- Run Lua in the compositor from a shell: ./boring.lua -e 'return boring.windows()'
+-- (or ./boring.lua -i for a REPL). Only you can reach it.
+plugin("@boring/ipc"):mount()
+
 -- The @boring/borders plugin adds pixel borders
 -- to windows.
 plugin("@boring/borders"):mount({

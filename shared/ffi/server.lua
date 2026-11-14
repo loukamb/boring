@@ -14,7 +14,6 @@ require("shared.ffi.common")
 ffi.cdef [[
 typedef unsigned long int __uint64_t;
 typedef unsigned long int __dev_t;
-typedef unsigned int __uid_t;
 typedef unsigned int __gid_t;
 typedef long int __off64_t;
 typedef __dev_t dev_t;

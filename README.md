@@ -16,15 +16,19 @@ A set of default plugins are included that provides basic window management and 
 
 - [`animations`](/plugins/animations.lua): Windows fade in and out as they open and close
 - [`borders`](/plugins/borders.lua): Draw borders around windows
+- [`idle`](/plugins/idle.lua): Lock and turn the screens off after a while without input
+- [`ipc`](/plugins/ipc.lua): Run Lua in the running compositor: `./boring.lua -e 'return #boring.windows()'`, or `./boring.lua -i` for a REPL
+- [`layout-master`](/plugins/layout-master.lua): Master and stack layout
 - [`layout-stacking`](/plugins/layout-stacking.lua): Traditional stacking layout
 - [`layout-tiling`](/plugins/layout-tiling.lua): Sway-inspired n-ary tiling layout
 - [`layout-kiosk`](/plugins/layout-kiosk.lua): Runs a single, maximized window
+- [`rules`](/plugins/rules.lua): Window rules as Lua functions returning properties (floating, size, workspace, …)
 - [`workspaces`](/plugins/workspaces.lua): Several workspaces per output, shown to panels over `ext-workspace`
 - [`screenshot`](/plugins/screenshot.lua): Screenshot plugin
 - [`wallpaper`](/plugins/wallpaper.lua): Wallpaper plugin
 - [`xwayland`](/plugins/xwayland.lua): XWayland integration
 
-The [default configuration](/default.lua) automatically mounts `animations`, `borders`, `layout-stacking`, `screenshot`, `wallpaper`, and `xwayland`. The documentation for each plugin can be found in their respective files.
+The [default configuration](/default.lua) automatically mounts `animations`, `borders`, `ipc`, `layout-stacking`, `screenshot`, `wallpaper`, and `xwayland`. The documentation for each plugin can be found in their respective files.
 
 ## Usage
 

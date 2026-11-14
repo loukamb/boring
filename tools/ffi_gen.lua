@@ -149,7 +149,7 @@ local bindings = {
         headers = {
             "<unistd.h>", "<stdlib.h>", "<fcntl.h>", "<poll.h>", "<dirent.h>",
             "<signal.h>", "<time.h>", "<sys/inotify.h>", "<sys/stat.h>",
-            "<sys/wait.h>", "<sys/mman.h>",
+            "<sys/wait.h>", "<sys/mman.h>", "<sys/socket.h>", "<sys/un.h>", "<errno.h>",
         },
         root_files = {},
         root_symbols = {
@@ -164,6 +164,9 @@ local bindings = {
             "mmap", "munmap", "shm_open", "shm_unlink", "ftruncate",
             -- time
             "clock_gettime",
+            -- Unix sockets (ipc)
+            "socket", "bind", "listen", "accept4", "connect", "shutdown", "unlink", "chmod",
+            "getuid", "struct sockaddr_un",
         },
         -- Integer macros, evaluated by the C compiler and emitted as enum constants.
         constants = {
@@ -176,6 +179,8 @@ local bindings = {
             "SIGTERM", "SIGKILL", "SIGINT", "SIGCHLD", "SIG_SETMASK", "WNOHANG",
             "S_IFMT", "S_IFDIR", "S_IFREG", "AT_FDCWD", "STATX_TYPE", "STATX_MODE",
             "PROT_READ", "PROT_WRITE", "MAP_SHARED", "CLOCK_MONOTONIC",
+            "AF_UNIX", "SOCK_STREAM", "SOCK_CLOEXEC", "SOCK_NONBLOCK", "SHUT_WR",
+            "EAGAIN", "EINTR",
         },
     },
 }

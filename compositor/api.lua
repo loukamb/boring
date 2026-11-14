@@ -2,6 +2,7 @@
 -- compositor. Available as the global `boring` in both.
 --
 -- Events (boring.events:on(name, fn)):
+--   window:configure(w)   (before window:map: set w.props, see compositor/window.lua)
 --   window:map(w)   window:unmap(w)   window:focus(w)   window:blur(w)
 --   window:commit(w)                  window:title(w)
 --   window:fullscreen(w)              window:maximize(w)   (state changed)
@@ -27,7 +28,7 @@ local windows = require("compositor.windows")
 local pointer = require("compositor.pointer")
 local output = require("compositor.output")
 local process = require("compositor.process")
-local timer = require("compositor.timer")
+local loop = require("compositor.loop")
 
 local api = {}
 
@@ -124,10 +125,19 @@ function api.create(server)
 
     --- Run fn after `ms` milliseconds; if it returns a number, again after
     --- that many. Returns a function that cancels it.
-    function boring.after(ms, fn) return timer.after(server, ms, fn) end
+    function boring.after(ms, fn) return loop.after(server, ms, fn) end
 
     --- Monotonic time in milliseconds.
-    boring.now = timer.now
+    boring.now = loop.now
+
+    --- Call fn() whenever a file descriptor is readable. Returns a function
+    --- that stops watching (the fd stays open).
+    function boring.on_readable(fd, fn) return loop.readable(server, fd, fn) end
+
+    --- Call handlers.idle() after `ms` without input (unless an idle
+    --- inhibitor is active), handlers.resume() when input comes back.
+    --- Returns a function that stops watching.
+    function boring.idle(ms, handlers) return require("compositor.idle").watch(server, ms, handlers) end
 
     function boring.exit()
         process.stop_all()

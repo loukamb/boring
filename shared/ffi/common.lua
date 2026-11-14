@@ -13,6 +13,7 @@
 local ffi = require("ffi")
 
 ffi.cdef [[
+typedef unsigned int __uid_t;
 typedef long int __off_t;
 typedef int __pid_t;
 typedef long int __time_t;

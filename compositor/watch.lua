@@ -6,8 +6,9 @@
 local ffi = require("ffi")
 local wl = require("shared.wl")
 local log = require("shared.log")
+local loop = require("compositor.loop")
 
-local lib, C = wl.lib, wl.C
+local C = wl.C
 
 local watch = {}
 
@@ -35,7 +36,7 @@ function watch.file(server, path, fn)
     end
 
     local buf = ffi.new("char[4096]")
-    local handler = ffi.cast("wl_event_loop_fd_func_t", function()
+    local remove = loop.readable(server, fd, function()
         local changed = false
         while true do
             local n = tonumber(C.read(fd, buf, 4096))
@@ -53,16 +54,13 @@ function watch.file(server, path, fn)
             local ok, err = xpcall(fn, debug.traceback)
             if not ok then log.error("watch %s: %s", path, tostring(err)) end
         end
-        return 0
     end)
 
-    local source = lib.wl_event_loop_add_fd(server.event_loop, fd, C.WL_EVENT_READABLE, handler, nil)
     local stopped = false
     local function stop()
         if stopped then return end
         stopped = true
-        lib.wl_event_source_remove(source)
-        handler:free()
+        remove()
         C.close(fd)
     end
     server.scope:defer(stop)

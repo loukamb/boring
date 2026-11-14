@@ -100,7 +100,7 @@ no module-level singletons to reach into.
 | `api.lua` | The `boring` API for config and plugins |
 | `process.lua` | Child processes, reaped via SIGCHLD on the event loop |
 | `watch.lua` | inotify on the event loop (config reload on save) |
-| `timer.lua` | Timers on the event loop, one C callback for all |
+| `loop.lua` | Timers and fd watches on the event loop, one C callback each |
 | `plugin.lua` | Loading and mounting plugins |
 | `state.lua` | Loading and reloading the config file |
 | `config/` | Config sandbox, rules (`monitor`, `input`), `actions` |
@@ -214,7 +214,7 @@ a smoke test in the VM display.
    only while something moves. Borders, stacking and wallpaper take
    animated values; an `animations` plugin animates windows opening and
    closing.
-10. **`rules`, `ipc`, `idle`, `layout-master`.**
+10. ~~**`rules`, `ipc`, `idle`, `layout-master`.**~~ Done.
     - `rules` mounts one function, called for each window before it maps,
       returning properties (`floating`, `size`, `workspace`, `fullscreen`,
       `border`, …) merged into `w.props`. Plugins read the properties they

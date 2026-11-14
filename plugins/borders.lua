@@ -11,6 +11,8 @@
 --       transition = 150,          -- ms to blend between colours (0: none)
 --   })
 --
+-- Windows with w.props.border = false (see the rules plugin) get none.
+--
 -- Colours can be animations (library/animate), e.g. an urgent border that
 -- pulses: urgent = animate.pulse({ from = "#ef4444", to = "#7f1d1d", period = 800 }).
 
@@ -67,7 +69,7 @@ function plugin:mount(config, ctx)
     end
 
     local function attach(w)
-        if w.data.borders then return end
+        if w.data.borders or w.props.border == false then return end
         local function rect() return lib.wlr_scene_rect_create(w.tree, 0, 0, initial) end
         local b = { top = rect(), bottom = rect(), left = rect(), right = rect() }
         w.data.borders = b

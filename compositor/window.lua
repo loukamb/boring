@@ -16,6 +16,7 @@
 --       moved = function(x, y)                           -- optional (X11 needs it)
 --       set_fullscreen = function(bool)                  -- optional
 --       set_maximized = function(bool)                   -- optional
+--       set_tiled = function(bool)                       -- optional
 --       positioned = true                                -- optional: the client
 --                                                        -- picks its position (X11)
 --   }
@@ -23,6 +24,12 @@
 -- Where a window goes is up to plugins; core only puts a new window at the
 -- origin of the output under the cursor. Plugins may keep their own
 -- per-window state in `window.data`.
+--
+-- `window.props` are properties plugins share, set before the window maps
+-- (window:configure, e.g. by the rules plugin) and read by whichever plugin
+-- understands them: floating, size = { w, h }, position = { x, y },
+-- workspace, output, fullscreen, maximized, border = false, focus = false
+-- (don't focus it when it maps). Unknown ones are ignored.
 
 local wl = require("shared.wl")
 
@@ -84,6 +91,15 @@ local function set_fullscreen(w, on)
     w.fullscreen = on
     if w.impl.set_fullscreen then w.impl.set_fullscreen(on) end
     w.server.events:emit("window:fullscreen", w)
+end
+
+--- Tell the client it's tiled (or not): it then fills the size it's given
+--- exactly instead of rounding it (terminals to whole cells).
+local function set_tiled(w, on)
+    on = on and true or false
+    if w.tiled == on then return end
+    w.tiled = on
+    if w.impl.set_tiled then w.impl.set_tiled(on) end
 end
 
 --- Mark the window as wanting attention (or not). Focusing it clears it.
@@ -150,6 +166,7 @@ function window.new(server, surface, tree, impl)
         fullscreen = false,
         maximized = false,
         urgent = false,
+        props = {},
         data = {},
 
         position = position,
@@ -162,6 +179,7 @@ function window.new(server, surface, tree, impl)
         visible = visible,
         set_fullscreen = set_fullscreen,
         set_maximized = set_maximized,
+        set_tiled = set_tiled,
         set_urgent = set_urgent,
         raise = raise,
         close = close,

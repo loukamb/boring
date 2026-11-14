@@ -3,7 +3,7 @@
 --
 -- An output record is a plain table:
 --   { name, wlr, scene_output, layout_output, scope, usable = {x,y,width,height},
---     box(o), size(o) }
+--     box(o), size(o), set_power(o, on) }
 -- `usable` is the area left after layer-shell exclusive zones (panels), in
 -- layout coordinates; plugins placing windows keep them inside it.
 --
@@ -50,6 +50,16 @@ end
 local function size(o)
     local b = box(o)
     return b.width, b.height
+end
+
+--- Turn the screen on or off (DPMS). The output stays in the layout.
+local function set_power(o, on)
+    local st = ffi.new("struct wlr_output_state")
+    lib.wlr_output_state_init(st)
+    st:set_enabled(on and true or false)
+    local ok = o.wlr:commit_state(st)
+    lib.wlr_output_state_finish(st)
+    return ok
 end
 
 -- Apply the monitor config to an output state. Returns false if the config
@@ -105,6 +115,7 @@ local function new_output(server, wlr_output)
         scope = server.scope:child("output " .. name),
         box = box,
         size = size,
+        set_power = set_power,
     }
 
     if config.x ~= nil or config.y ~= nil then

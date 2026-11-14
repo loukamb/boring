@@ -9,6 +9,7 @@
 --
 -- Workspaces are per output: every output has `count` of them, numbered
 -- from 1. Clients activating a workspace through ext-workspace switch to it.
+-- A window with w.props.workspace = n opens on workspace n of its output.
 
 local spaces = require("@boring/library/spaces")
 
@@ -105,6 +106,10 @@ scope:subscribe(boring.events, "output:remove", function(o)
     local group = groups[o]
     groups[o] = nil
     if group then lib.wlr_ext_workspace_group_handle_v1_destroy(group) end
+end)
+scope:subscribe(boring.events, "window:map", function(w)
+    local n = w.props.workspace
+    if type(n) == "number" then workspaces.send(w, n) end
 end)
 scope:subscribe(boring.events, "space:add", publish)
 scope:subscribe(boring.events, "space:remove", unpublish)
