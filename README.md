@@ -44,7 +44,7 @@ To get started with `boring`, you need the following dependencies installed:
 
 No compiler or `-devel` headers are needed: the FFI declarations are generated ahead of time and committed under [`shared/ffi`](/shared/ffi/).
 
-Some additional dependencies may be needed depending on the plugins you choose to use. The default plugins depend on `xwayland`, which requires `xorg-server` and `libxcb`, as well as `libvips` for the wallpaper and screenshot plugins.
+Some additional dependencies may be needed depending on the plugins you choose to use. The default plugins depend on `xwayland`, which requires `xorg-server` and `libxcb`, as well as `libvips` for text, icons, images and screenshots. Notifications use the D-Bus client library that's installed (`libsystemd`, `libelogind`, `libbasu` or `libdbus`) and turn themselves off without one.
 
 To try the compositor inside your current Wayland session, run it nested with
 wlroots' Wayland backend; it opens as a regular window on your host compositor:
