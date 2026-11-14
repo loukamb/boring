@@ -125,7 +125,7 @@ local bindings = {
         root_symbols = {
             -- processes and environment
             "fork", "execl", "execvp", "_exit", "kill", "waitpid", "getpid", "chdir", "getcwd",
-            "getenv", "setenv", "unsetenv",
+            "getenv", "setenv", "unsetenv", "sigemptyset", "sigprocmask", "setsid",
             -- files
             "open", "read", "write", "close", "fcntl", "poll", "statx",
             "opendir", "readdir", "closedir",
@@ -143,7 +143,7 @@ local bindings = {
             "IN_ISDIR", "IN_NONBLOCK", "IN_CLOEXEC",
             "O_RDONLY", "O_RDWR", "O_CREAT", "O_EXCL", "O_NONBLOCK", "O_CLOEXEC",
             "F_GETFL", "F_SETFL", "POLLIN", "POLLOUT", "POLLERR", "POLLHUP",
-            "SIGTERM", "SIGKILL", "SIGINT", "WNOHANG",
+            "SIGTERM", "SIGKILL", "SIGINT", "SIGCHLD", "SIG_SETMASK", "WNOHANG",
             "S_IFMT", "S_IFDIR", "S_IFREG", "AT_FDCWD", "STATX_TYPE", "STATX_MODE",
             "PROT_READ", "PROT_WRITE", "MAP_SHARED", "CLOCK_MONOTONIC",
         },

@@ -20,10 +20,15 @@ extern int execl(const char *__path, const char *__arg, ...);
 extern int execvp(const char *__file, char *const __argv[]);
 extern void _exit(int __status);
 extern __pid_t getpid(void);
+extern __pid_t setsid(void);
 extern __pid_t fork(void);
 extern int ftruncate(int __fd, __off_t __length);
 typedef __mode_t mode_t;
 typedef __clockid_t clockid_t;
+typedef struct {
+    unsigned long int __val[(1024 / (8 *sizeof (unsigned long int)))];
+} __sigset_t;
+typedef __sigset_t sigset_t;
 extern char *getenv(const char *__name);
 extern int setenv(const char *__name, const char *__value, int __replace);
 extern int unsetenv(const char *__name);
@@ -53,6 +58,8 @@ extern int closedir(DIR *__dirp);
 extern DIR *opendir(const char *__name);
 extern struct dirent *readdir(DIR *__dirp);
 extern int kill(__pid_t __pid, int __sig);
+extern int sigemptyset(sigset_t *__set);
+extern int sigprocmask(int __how, const sigset_t *__set, sigset_t *__oset);
 extern int clock_gettime(clockid_t __clock_id, struct timespec *__tp);
 struct inotify_event {
     int wd;
@@ -142,6 +149,8 @@ enum {
     SIGTERM = 15,
     SIGKILL = 9,
     SIGINT = 2,
+    SIGCHLD = 17,
+    SIG_SETMASK = 2,
     WNOHANG = 1,
     S_IFMT = 61440,
     S_IFDIR = 16384,

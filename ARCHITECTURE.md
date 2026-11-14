@@ -36,7 +36,10 @@ only ever *called*, never generated or patched at runtime.
 7. **Portability.** No assumptions about architecture, libc or install prefix:
    no hard-coded `/usr/share` paths (use `pkg-config --variable` at generation
    time or `XDG_DATA_DIRS` at runtime), no x86-only type lists.
-8. **Hot paths stay JIT-friendly.** Per-frame and per-input-event code avoids
+8. **NULL is `nil`, but cdata is truthy.** A NULL pointer compares equal to
+   `nil`, so test pointers with `ptr ~= nil` / `ptr == nil`; never `if ptr then`
+   (true for NULL) or `ptr ~= ffi.NULL` (redundant).
+9. **Hot paths stay JIT-friendly.** Per-frame and per-input-event code avoids
    closures created per call, `pcall`, vararg-heavy helpers, table churn and
    C→Lua callbacks. Cache `ffi.new` scratch buffers at module level.
 
@@ -45,16 +48,44 @@ only ever *called*, never generated or patched at runtime.
 Each layer may only `require` layers below it.
 
 ```
-plugins/           Window management, borders, wallpaper, … (public API only)
-compositor/        Server: core loop, outputs, seat/input, xdg/layer shell,
-                   each protocol a self-contained module with setup/teardown
-shared/wl/         Lua helpers over the bindings: listener dispatch, scope,
-                   wl_list iteration, metatypes for wlroots structs
+plugins/           Layouts, borders, wallpaper, screenshots, XWayland
+                   (only the `boring` API: compositor/api.lua)
+compositor/        The compositor: modules sharing one `server` record
+shared/wl/         Lua helpers over the bindings: listener trampoline, scope,
+                   wl_list iteration, metatypes for wlroots structs, buffers
 shared/ffi/        Bindings only: generated cdefs + library loading. No logic.
 ```
 
-`clients/` (the wallpaper client and future helpers) sit beside `compositor/` and
-use `shared/` the same way.
+`clients/` (the wallpaper client) sits beside `compositor/` and uses
+`shared/` the same way.
+
+### Compositor modules
+
+`compositor/server.lua` creates the server record (display, backend,
+renderer, scene, layers). Every other module exposes `setup(server)`, which
+creates its globals and registers its listeners on `server.scope`; there are
+no module-level singletons to reach into.
+
+| Module | Responsibility |
+| --- | --- |
+| `output.lua` | Configure monitors, render frames, output records |
+| `input.lua` | Seat, device hotplug, capabilities, cursor images, clipboard |
+| `keyboard.lua` | Keymaps, repeat, keyboard shortcuts |
+| `pointer.lua` | Cursor, buttons, scrolling, mouse shortcuts, move/resize grabs |
+| `shortcuts.lua` | Parsing and matching shortcut strings (pure) |
+| `window.lua` | The window object: generic core + role implementation |
+| `windows.lua` | Map/unmap, focus, hit testing |
+| `layout.lua` | Per-monitor layout state, delegation to layout plugins |
+| `xdg_shell.lua` | xdg toplevels → windows, popups, decorations |
+| `layer_shell.lua` | Layer surfaces, exclusive zones, usable area |
+| `protocols.lua` | Protocols wlroots implements, one self-contained entry each |
+| `api.lua` | The `boring` API for config and plugins |
+| `process.lua` | Child processes, reaped via SIGCHLD on the event loop |
+| `config/` | Config sandbox, rules (`monitor`, `input`), `actions` |
+
+Startup order (`compositor/init.lua`): server → modules → config (which
+mounts plugins, so they can use everything) → backend start (outputs and
+devices appear, configured from the loaded config) → event loop.
 
 ## FFI
 
@@ -114,10 +145,11 @@ a smoke test in the VM display.
    metatypes, one emitter (`events.lua` alias and the unused `hook.lua` are
    gone). `shared/wayland/server.lua` and `shared/scope.lua` remain as thin
    compatibility layers until step 3 ports their callers.
-3. **Core services** (`compositor/`): split by protocol and responsibility, kill
-   cross-service singletons, adopt metatypes. Big files (`input.lua`,
-   `surface.lua`) get broken up here.
-4. **Plugins:** port to the public API only; `layout-tiling` gets the most work.
+3. ~~**Core services**~~ Done: the six singleton services became modules over
+   one `server` record (table above); windows are one object type with role
+   implementations; config rules are plain tables.
+4. ~~**Plugins**~~ Done: every plugin uses only the `boring` API and runs in
+   the config environment.
 5. **New protocols** (see [PROTOCOLS.md](PROTOCOLS.md)): primary selection,
    text-input/input-method, xdg-toplevel-icon, ext-image-copy-capture,
    session-lock and so on, each added as one self-contained module.

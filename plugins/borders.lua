@@ -1,170 +1,102 @@
 -- plugins/borders.lua
--- Draw borders around windows using wlr_scene_rect
+-- Draw solid borders around windows.
+--
+--   plugin("@boring/borders"):mount({
+--       width = 2,
+--       colors = { normal = "#737373", focused = "#f59e0b" },
+--   })
 
-local wl = require("shared.wayland.server")
-local color_mod = require("shared.color")
-local ffi = wl._ffi
+local color = require("shared.color")
+local ffi = require("ffi")
 
-local plugin = {
-    name = "borders",
-}
+local plugin = { name = "borders" }
 
--- Default configuration
-local default_config = {
-    width = 2,
-    colors = {
-        normal = "#888888",
-        focused = "#ffffff",
-        urgent = "#ff0000",
-    }
-}
+local DEFAULTS = { width = 2, normal = "#888888", focused = "#ffffff" }
 
--- Parse color to RGBA array for wlr_scene_rect (0-1 range)
-local function parse_color(hex_or_table)
-    if type(hex_or_table) == "string" then
-        return color_mod.hex(hex_or_table) or { 0.5, 0.5, 0.5, 1.0 }
-    elseif type(hex_or_table) == "table" then
-        return hex_or_table -- Already a float array
+local function parse_color(value)
+    if type(value) == "string" then
+        return color.hex(value) or { 0.5, 0.5, 0.5, 1.0 }
+    elseif type(value) == "table" then
+        return value
     end
     return { 0.5, 0.5, 0.5, 1.0 }
 end
 
--- Premultiply alpha (Sway pattern)
+-- wlroots wants premultiplied alpha.
 local function premultiply(rgba)
-    local r, g, b, a = rgba[1], rgba[2], rgba[3], rgba[4]
+    local r, g, b, a = rgba[1], rgba[2], rgba[3], rgba[4] or 1
     return ffi.new("float[4]", { r * a, g * a, b * a, a })
-end
-
--- Create border rects for a surface
-local function create_border(surface, color_rgba)
-    local tree = surface and surface:scene_tree()
-    if not tree then return end
-    local color = premultiply(color_rgba)
-
-    -- Create 4 rect nodes as children of surface's scene tree
-    surface._border = {
-        top = wl.roots.scene_rect_create(tree, 0, 0, color),
-        bottom = wl.roots.scene_rect_create(tree, 0, 0, color),
-        left = wl.roots.scene_rect_create(tree, 0, 0, color),
-        right = wl.roots.scene_rect_create(tree, 0, 0, color),
-    }
-end
-
--- Update border geometry
-local function update_border(surface, border_width)
-    local b = surface._border
-    if not b then return end
-    if not surface.scene_node or not surface:scene_node() then return end
-
-    -- Get surface geometry
-    local geo = surface:geometry()
-
-    if geo.width <= 0 or geo.height <= 0 then return end
-
-    local cache = surface._border_geometry
-    if cache and cache.width == geo.width and cache.height == geo.height and cache.border_width == border_width then
-        return
-    end
-    surface._border_geometry = {
-        width = geo.width,
-        height = geo.height,
-        border_width = border_width,
-    }
-
-    -- Top: full width, at top edge
-    wl.roots.scene_rect_set_size(b.top, geo.width + border_width * 2, border_width)
-    wl.roots.scene_node_set_position(b.top.node, -border_width, -border_width)
-
-    -- Bottom: full width, at bottom edge
-    wl.roots.scene_rect_set_size(b.bottom, geo.width + border_width * 2, border_width)
-    wl.roots.scene_node_set_position(b.bottom.node, -border_width, geo.height)
-
-    -- Left: inner height, at left edge
-    wl.roots.scene_rect_set_size(b.left, border_width, geo.height)
-    wl.roots.scene_node_set_position(b.left.node, -border_width, 0)
-
-    -- Right: inner height, at right edge
-    wl.roots.scene_rect_set_size(b.right, border_width, geo.height)
-    wl.roots.scene_node_set_position(b.right.node, geo.width, 0)
-end
-
--- Set border color
-local function set_border_color(surface, color_rgba)
-    local b = surface._border
-    if not b then return end
-
-    local color = premultiply(color_rgba)
-    for _, rect in pairs(b) do
-        if rect then
-            wl.roots.scene_rect_set_color(rect, color)
-        end
-    end
-end
-
--- Destroy border
-local function destroy_border(surface)
-    local b = surface._border
-    if not b then return end
-
-    for _, rect in pairs(b) do
-        if rect and rect.node then
-            wl.roots.scene_node_destroy(rect.node)
-        end
-    end
-    surface._border = nil
-    surface._border_geometry = nil
 end
 
 function plugin:mount(config)
     config = config or {}
-    local colors = {
-        normal = parse_color((config.colors or {}).normal or default_config.colors.normal),
-        focused = parse_color((config.colors or {}).focused or default_config.colors.focused),
-        urgent = parse_color((config.colors or {}).urgent or default_config.colors.urgent),
-    }
-    local border_width = config.width or default_config.width
+    local colors = config.colors or {}
+    local width = config.width or DEFAULTS.width
+    local normal = premultiply(parse_color(colors.normal or DEFAULTS.normal))
+    local focused = premultiply(parse_color(colors.focused or DEFAULTS.focused))
+    local lib = boring.wl.lib
+    local scope = boring.scope("borders")
 
-    local surface_service = require("compositor.services.surface")
+    local function update(w)
+        local b = w.data.borders
+        if not b then return end
+        local g = w:geometry()
+        if g.width <= 0 or g.height <= 0 then return end
+        if b.width == g.width and b.height == g.height and b.x == g.x and b.y == g.y then return end
+        b.x, b.y, b.width, b.height = g.x, g.y, g.width, g.height
+        local x0, y0 = g.x - width, g.y - width
+        b.top:set_size(g.width + width * 2, width)
+        b.top.node:set_position(x0, y0)
+        b.bottom:set_size(g.width + width * 2, width)
+        b.bottom.node:set_position(x0, g.y + g.height)
+        b.left:set_size(width, g.height)
+        b.left.node:set_position(x0, g.y)
+        b.right:set_size(width, g.height)
+        b.right.node:set_position(g.x + g.width, g.y)
+    end
 
-    -- Store config for use in callbacks
-    self._config = { colors = colors, width = border_width }
-    self._listeners = {}
+    local function set_color(w, c)
+        local b = w.data.borders
+        if not b then return end
+        for _, side in ipairs({ "top", "bottom", "left", "right" }) do
+            b[side]:set_color(c)
+        end
+    end
 
-    -- Subscribe to surface events
-    table.insert(self._listeners, surface_service.events:on("surface:map", function(surface)
-        create_border(surface, colors.normal)
-        update_border(surface, border_width)
-    end))
+    scope:subscribe(boring.events, "window:map", function(w)
+        local function rect() return lib.wlr_scene_rect_create(w.tree, 0, 0, normal) end
+        w.data.borders = { top = rect(), bottom = rect(), left = rect(), right = rect() }
+        update(w)
+    end)
+    scope:subscribe(boring.events, "window:unmap", function(w)
+        local b = w.data.borders
+        if not b then return end
+        for _, side in ipairs({ "top", "bottom", "left", "right" }) do
+            b[side].node:destroy()
+        end
+        w.data.borders = nil
+    end)
+    scope:subscribe(boring.events, "window:commit", update)
+    scope:subscribe(boring.events, "window:focus", function(w) set_color(w, focused) end)
+    scope:subscribe(boring.events, "window:blur", function(w) set_color(w, normal) end)
 
-    table.insert(self._listeners, surface_service.events:on("surface:unmap", function(surface)
-        destroy_border(surface)
-    end))
-
-    table.insert(self._listeners, surface_service.events:on("surface:commit", function(surface)
-        update_border(surface, border_width)
-    end))
-
-    table.insert(self._listeners, surface_service.events:on("surface:focus", function(surface)
-        set_border_color(surface, colors.focused)
-    end))
-
-    table.insert(self._listeners, surface_service.events:on("surface:blur", function(surface)
-        set_border_color(surface, colors.normal)
-    end))
-
-
+    self._scope = scope
     return {}
 end
 
 function plugin:unmount()
-    -- Unsubscribe all listeners
-    for _, listener in ipairs(self._listeners or {}) do
-        if listener and listener.off then
-            listener:off()
+    if self._scope then
+        -- Remove borders from windows that still have them.
+        for _, w in ipairs(boring.windows()) do
+            local b = w.data.borders
+            if b then
+                for _, side in ipairs({ "top", "bottom", "left", "right" }) do b[side].node:destroy() end
+                w.data.borders = nil
+            end
         end
+        self._scope:close()
+        self._scope = nil
     end
-    self._listeners = nil
-    self._config = nil
 end
 
 plugin._private = {

@@ -1,0 +1,170 @@
+-- Window bookkeeping: registration, map/unmap, keyboard focus, hit testing.
+--
+-- server.windows holds mapped windows, most recently focused first.
+
+local wl = require("shared.wl")
+local layout = require("compositor.layout")
+
+local ffi, lib, C = wl.ffi, wl.lib, wl.C
+local addr = wl.addr
+
+local windows = {}
+
+function windows.register(server, w)
+    server.surfaces[addr(w.surface)] = w
+    server.trees[addr(w.tree)] = w
+end
+
+function windows.unregister(server, w)
+    server.surfaces[addr(w.surface)] = nil
+    server.trees[addr(w.tree)] = nil
+end
+
+--- The window a wlr_surface belongs to, if any.
+function windows.from_surface(server, surface)
+    if surface == nil then return nil end
+    return server.surfaces[addr(surface)]
+end
+
+function windows.focused(server)
+    return server.focused
+end
+
+local function remove(list, item)
+    for i = 1, #list do
+        if list[i] == item then
+            table.remove(list, i)
+            return true
+        end
+    end
+    return false
+end
+
+local function keyboard_enter(server, surface)
+    local seat = server.seat
+    local kb = lib.wlr_seat_get_keyboard(seat)
+    if kb ~= nil then
+        seat:keyboard_notify_enter(surface, kb.keycodes, kb.num_keycodes, kb.modifiers)
+    else
+        seat:keyboard_notify_enter(surface, nil, 0, nil)
+    end
+end
+
+--- Give a window keyboard focus and raise it.
+function windows.focus(server, w)
+    if w == nil or not w.mapped then return end
+    local prev = server.focused
+    if prev == w then
+        w:raise()
+        return
+    end
+    if prev then
+        prev.activated = false
+        prev.impl.set_activated(false)
+    end
+
+    server.focused = w
+    w:raise()
+    remove(server.windows, w)
+    table.insert(server.windows, 1, w)
+    w.activated = true
+    w.impl.set_activated(true)
+    -- A layer surface with exclusive keyboard focus keeps the keyboard.
+    if not server.exclusive_focus then
+        keyboard_enter(server, w.surface)
+    end
+
+    if prev then server.events:emit("window:blur", prev) end
+    server.events:emit("window:focus", w)
+end
+
+--- Drop keyboard focus from windows (e.g. a layer surface takes it).
+function windows.blur(server)
+    local prev = server.focused
+    if not prev then return end
+    server.focused = nil
+    prev.activated = false
+    prev.impl.set_activated(false)
+    lib.wlr_seat_keyboard_notify_clear_focus(server.seat)
+    server.events:emit("window:blur", prev)
+end
+
+--- Re-send keyboard focus to the focused window (after a layer surface let go).
+function windows.restore_keyboard(server)
+    if server.focused then
+        keyboard_enter(server, server.focused.surface)
+    else
+        lib.wlr_seat_keyboard_notify_clear_focus(server.seat)
+    end
+end
+
+function windows.map(server, w)
+    if w.mapped then return end
+    w.mapped = true
+    table.insert(server.windows, 1, w)
+    layout.add_window(server, w)
+    server.events:emit("window:map", w)
+    windows.focus(server, w)
+end
+
+function windows.unmap(server, w)
+    if not w.mapped then return end
+    w.mapped = false
+    if server.grab and server.grab.window == w then
+        server.grab = nil
+    end
+    layout.remove_window(server, w)
+    remove(server.windows, w)
+    server.events:emit("window:unmap", w)
+    if server.focused == w then
+        server.focused = nil
+        w.activated = false
+        server.events:emit("window:blur", w)
+        local next_window = server.windows[1]
+        if next_window then
+            windows.focus(server, next_window)
+        elseif not server.exclusive_focus then
+            lib.wlr_seat_keyboard_notify_clear_focus(server.seat)
+        end
+    end
+end
+
+--- Focus the least recently focused window (simple alt-tab).
+function windows.cycle(server)
+    local n = #server.windows
+    if n >= 2 then
+        windows.focus(server, server.windows[n])
+    end
+end
+
+local sx_out = ffi.new("double[1]")
+local sy_out = ffi.new("double[1]")
+
+--- What's under a point in layout coordinates.
+--- Returns window (or nil), wlr_surface (or nil), surface-local x, y, and the
+--- scene node hit (or nil). Decorations are scene nodes without a surface.
+function windows.at(server, lx, ly)
+    local node = server.scene.tree.node:at(lx, ly, sx_out, sy_out)
+    if node == nil then
+        return nil
+    end
+    local surface, sx, sy = nil, sx_out[0], sy_out[0]
+    if node.type == C.WLR_SCENE_NODE_BUFFER then
+        local scene_surface = lib.wlr_scene_surface_try_from_buffer(lib.wlr_scene_buffer_from_node(node))
+        if scene_surface ~= nil then
+            surface = scene_surface.surface
+        end
+    end
+
+    local tree = node.parent
+    while tree ~= nil do
+        local w = server.trees[addr(tree)]
+        if w then
+            return w, surface, sx, sy, node
+        end
+        tree = tree.node.parent
+    end
+    return nil, surface, sx, sy, node
+end
+
+return windows

@@ -1,26 +1,17 @@
 -- plugins/layout-tiling.lua
--- Sway-style N-ary tiling layout plugin
--- Windows organized in N-ary tree with dynamic width/height fractions
+-- Sway-style N-ary tiling: windows live in a tree of horizontal/vertical
+-- splits with resizable fractions.
+--
+--   plugin("@boring/layout-tiling"):mount()
+--   monitor.new({ name = "*", layout = { mode = "tiling", gaps = { inner = 4, outer = 4, smart = true } } })
 
--- layouts/tiling.lua - Sway-style N-ary Tiling Layout
--- Windows are organized in an N-ary tree with dynamic width/height fractions
-
-local log = require("shared.log")
-local wl = require("shared.wayland.server")
-local ffi = wl._ffi
-local bit = wl.bit
-local output_service = require("compositor.services.output")
+local bit = require("bit")
+local C = require("ffi").C
 
 local tiling = {}
-local clip_box = ffi.new("struct wlr_box")
 
 local function has_scene(surface)
-    return surface and surface.scene_node and surface:scene_node() ~= nil
-end
-
-local function raw_scene_node(surface)
-    local scene = surface:scene_node()
-    return scene and scene:node() or nil
+    return surface ~= nil and surface.tree ~= nil
 end
 
 local function geometry(surface)
@@ -180,11 +171,11 @@ end
 --------------------------------------------------------------------------------
 
 -- WLR_EDGE constants for resize direction
-local WLR_EDGE_NONE = 0
-local WLR_EDGE_TOP = 1
-local WLR_EDGE_BOTTOM = 2
-local WLR_EDGE_LEFT = 4
-local WLR_EDGE_RIGHT = 8
+local WLR_EDGE_NONE = C.WLR_EDGE_NONE
+local WLR_EDGE_TOP = C.WLR_EDGE_TOP
+local WLR_EDGE_BOTTOM = C.WLR_EDGE_BOTTOM
+local WLR_EDGE_LEFT = C.WLR_EDGE_LEFT
+local WLR_EDGE_RIGHT = C.WLR_EDGE_RIGHT
 
 -- Check if edge is horizontal (left/right)
 local function is_horizontal_edge(edge)
@@ -476,14 +467,9 @@ arrange_container = function(container, inner_gap)
                 surface:set_size(container.width, container.height)
             end
 
-            -- Clip surface to prevent overflow before client redraws
-            -- This ensures the window doesn't visually overflow its bounds
-            -- while waiting for the client to acknowledge the resize
-            clip_box.x = 0
-            clip_box.y = 0
-            clip_box.width = container.width
-            clip_box.height = container.height
-            pcall(wl.roots.scene_subsurface_tree_set_clip, raw_scene_node(surface), clip_box)
+            -- Clip until the client catches up with the new size, so it
+            -- never draws over its neighbours.
+            surface:set_clip({ x = geo.x, y = geo.y, width = container.width, height = container.height })
         end
         return
     end
@@ -503,11 +489,6 @@ arrange_container = function(container, inner_gap)
     end
 end
 
--- Get logical output dimensions (accounting for scale/transform)
-local function get_output_dimensions(output)
-    return output:dimensions()
-end
-
 -- Arrange the entire workspace
 local function arrange_workspace(monitor_state)
     local ts = monitor_state.tiling
@@ -516,7 +497,7 @@ local function arrange_workspace(monitor_state)
     local output = monitor_state.output
     if not output then return end
 
-    local output_width, output_height = get_output_dimensions(output)
+    local area = output.usable
 
     -- Get gap configuration
     local gaps = monitor_state.config.gaps or { inner = 4, outer = 4, smart = true }
@@ -532,10 +513,10 @@ local function arrange_workspace(monitor_state)
 
     -- Calculate usable area (workspace box with outer gaps applied)
     local workspace_box = {
-        x = outer_gap,
-        y = outer_gap,
-        width = output_width - (outer_gap * 2),
-        height = output_height - (outer_gap * 2),
+        x = area.x + outer_gap,
+        y = area.y + outer_gap,
+        width = area.width - (outer_gap * 2),
+        height = area.height - (outer_gap * 2),
     }
 
     -- Apply layout to top-level children
@@ -769,9 +750,9 @@ end
 function tiling:on_window_add(monitor_state, surface)
     local ts = monitor_state.tiling
 
-    -- Get currently focused surface
-    local surface_service = require("compositor.services.surface")
-    local focused = surface_service:get_focused_window()
+    -- New windows go next to the focused one, if it's on this monitor.
+    local focused = boring.focused()
+    if focused and focused.monitor ~= monitor_state then focused = nil end
 
     -- Add as sibling
     add_window(ts, surface, focused)
@@ -796,8 +777,7 @@ function tiling:on_window_remove(monitor_state, surface)
     arrange_workspace(monitor_state)
 end
 
-function tiling:on_window_resize(monitor_state, surface, width, height)
-    -- In tiling, we control window sizes, so just re-arrange
+function tiling:on_usable_area(monitor_state)
     arrange_workspace(monitor_state)
 end
 
@@ -815,14 +795,6 @@ function tiling:split(monitor_state, surface, layout)
         arrange_workspace(monitor_state)
     end
     return ok
-end
-
-function tiling:split_horizontal(monitor_state, surface)
-    return self:split(monitor_state, surface, "horizontal")
-end
-
-function tiling:split_vertical(monitor_state, surface)
-    return self:split(monitor_state, surface, "vertical")
 end
 
 function tiling:position_window(monitor_state, surface)
@@ -844,16 +816,6 @@ function tiling:position_window(monitor_state, surface)
 
         surface:set_position(node_x, node_y)
     end
-end
-
---------------------------------------------------------------------------------
--- Hit Testing
---------------------------------------------------------------------------------
-
-function tiling:get_window_at(monitor_state, x, y)
-    local surface_service = require("compositor.services.surface")
-    local surface, _, _, _ = surface_service:surface_at(x, y)
-    return surface
 end
 
 --------------------------------------------------------------------------------
@@ -896,12 +858,11 @@ function tiling:end_move(monitor_state)
     if ts.mode ~= "move" then return end
 
     local grabbed_surface = ts.grabbed_surface
-    local input_service = require("compositor.services.input")
-    local cursor = input_service:get_cursor()
+    local cx, cy = boring.cursor()
 
     -- Find containers
     local grabbed_container = find_in_children(ts.children, grabbed_surface)
-    local target_container = find_leaf_at(ts.children, cursor.x, cursor.y)
+    local target_container = find_leaf_at(ts.children, cx, cy)
 
     if grabbed_container and target_container and grabbed_container ~= target_container then
         -- Swap surfaces between containers
@@ -1125,32 +1086,12 @@ function tiling:enter_fullscreen(monitor_state, surface)
     if not has_scene(surface) then
         return false
     end
-
-    local ts = monitor_state.tiling
-    local container = find_in_children(ts.children, surface)
-
-    -- Store pre-fullscreen state
-    surface._pre_fullscreen = {
-        container = container,
-    }
-
-    -- Get output dimensions
-    local output = monitor_state.output
-    local width, height = get_output_dimensions(output)
-
-    -- Position at origin (accounting for geometry offset)
-    local node_x, node_y = 0, 0
+    local area = monitor_state.output:box()
     local geo = geometry(surface)
-    node_x = -geo.x
-    node_y = -geo.y
-    surface:set_position(node_x, node_y)
-    surface:set_size(width, height)
-    pcall(wl.roots.scene_subsurface_tree_set_clip, raw_scene_node(surface), nil)
-
-    -- Raise to top
-    surface:raise_to_top()
-
-    monitor_state.fullscreen_surface = surface
+    surface:set_position(area.x - geo.x, area.y - geo.y)
+    surface:set_size(area.width, area.height)
+    surface:set_clip(nil)
+    surface:raise()
     return true
 end
 
@@ -1160,10 +1101,8 @@ function tiling:exit_fullscreen(monitor_state)
         return false
     end
 
-    surface._pre_fullscreen = nil
+    -- The layout module clears fullscreen_surface after this returns.
     monitor_state.fullscreen_surface = nil
-
-    -- Re-arrange to restore tiled position
     arrange_workspace(monitor_state)
 
     return true
@@ -1188,14 +1127,12 @@ plugin._private = {
 }
 
 function plugin:mount(config)
-    local layout_service = require("compositor.services.layout")
-    layout_service:register("tiling", tiling)
+    boring.layout.register("tiling", tiling)
     return { layout = tiling }
 end
 
 function plugin:unmount()
-    local layout_service = require("compositor.services.layout")
-    layout_service:unregister("tiling")
+    boring.layout.unregister("tiling")
 end
 
 return plugin

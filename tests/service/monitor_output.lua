@@ -1,6 +1,6 @@
 return function(t)
     local runtime = require("compositor.config.init")
-    local output = require("compositor.services.output")
+    local output = require("compositor.output")
 
     t.test("monitor preferred mode clears explicit dimensions", function()
         local instance = runtime.new()

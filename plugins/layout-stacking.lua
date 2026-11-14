@@ -1,272 +1,219 @@
 -- plugins/layout-stacking.lua
--- Traditional stacking window layout plugin
--- Windows are freely positioned and can overlap, with focus-based z-ordering
+-- Floating windows with optional server-side title bars.
+--
+--   plugin("@boring/layout-stacking"):mount({
+--       theme = {
+--           height = 24,               -- title bar height
+--           font = "Sans Bold 10",
+--           title = "#0a0a0a",         -- title text
+--           decorations = "#f59e0b",   -- title bar
+--           button_background = "#f59e0b",
+--           button_foreground = "#0a0a0a",
+--       },
+--       controls = {                   -- left to right
+--           { type = "title" },
+--           { type = "spacer" },
+--           { type = "button", icon = "close", on_click = function(w) w:close() end },
+--       },
+--   })
+--
+-- Without `controls` (or with `decorations = false`) windows get no title bar.
+-- Dragging the title bar moves the window; new windows open centred.
 
-local wl = require("shared.wayland.server")
-local ffi = wl._ffi
-local bit = wl.bit
+local color = require("shared.color")
+local ffi = require("ffi")
 
---------------------------------------------------------------------------------
--- Stacking Layout Implementation
---------------------------------------------------------------------------------
+local plugin = { name = "layout-stacking" }
 
-local stacking = {}
+local ICONS = { close = "×", maximize = "□", minimize = "–" }
 
-local function has_scene(surface)
-    return surface and surface.scene_node and surface:scene_node() ~= nil
+local function rgba(value, fallback)
+    local c = type(value) == "string" and color.hex(value) or value
+    return c or fallback
 end
 
-local function surface_position(surface)
-    return surface:position()
+-- float[4] premultiplied, for scene rects.
+local function float4(c)
+    local a = c[4] or 1
+    return ffi.new("float[4]", { c[1] * a, c[2] * a, c[3] * a, a })
 end
 
-local function surface_geometry(surface)
-    return surface:geometry()
-end
+local function make_stacking(config)
+    local theme = config.theme or {}
+    local controls = config.controls
+    local decorated = controls ~= nil and config.decorations ~= false
+    local height = theme.height or 24
+    local font = theme.font or "Sans Bold 10"
+    local bar_color = rgba(theme.decorations, { 0.2, 0.2, 0.2, 1 })
+    local title_color = rgba(theme.title, { 1, 1, 1, 1 })
+    local button_bg = rgba(theme.button_background, bar_color)
+    local button_fg = rgba(theme.button_foreground, title_color)
 
-function stacking:init(monitor_state)
-    monitor_state.stacking = {
-        grabbed_surface = nil,
-        grab_x = 0,
-        grab_y = 0,
-        grab_geobox = nil,
-        resize_edges = 0,
-        mode = "none", -- "none", "move", "resize"
-    }
-end
+    local lib = boring.wl.lib
+    local buffer = require("shared.wl.buffer")
+    local ok_image, image = pcall(require, "shared.image")
+    if not ok_image then image = nil end
 
-function stacking:shutdown(monitor_state)
-    monitor_state.stacking = nil
-end
-
---------------------------------------------------------------------------------
--- Window Lifecycle
---------------------------------------------------------------------------------
-
-function stacking:on_window_add(monitor_state, surface)
-
-end
-
-function stacking:on_window_remove(monitor_state, surface)
-    if not monitor_state.stacking then
-        return
-    end
-    if monitor_state.stacking.grabbed_surface == surface then
-        monitor_state.stacking.grabbed_surface = nil
-        monitor_state.stacking.mode = "none"
-    end
-end
-
-function stacking:on_window_resize(monitor_state, surface, width, height)
-    -- No special handling needed
-end
-
-function stacking:position_window(monitor_state, surface)
-    -- Stacking doesn't enforce positions - windows stay where placed
-end
-
---------------------------------------------------------------------------------
--- Hit Testing
---------------------------------------------------------------------------------
-
-function stacking:get_window_at(monitor_state, x, y)
-    local surface_service = require("compositor.services.surface")
-    local surface, _, _, _ = surface_service:surface_at(x, y)
-    return surface
-end
-
---------------------------------------------------------------------------------
--- Interactive Move
---------------------------------------------------------------------------------
-
-function stacking:begin_move(monitor_state, surface, cursor_x, cursor_y)
-    if not has_scene(surface) then
-        return false
+    -- Text as a scene buffer under `tree`, or nil if there's no text renderer.
+    local function text_node(tree, text, c)
+        if not image or not text or text == "" then return nil end
+        local ok, width, h, mask = pcall(image.text, text, font)
+        if not ok or not width then return nil end
+        local buf = buffer.new(width, h)
+        local px = buf.pixels
+        for i = 0, width * h - 1 do
+            local coverage = mask:byte(i + 1) / 255
+            if coverage > 0 then
+                px[i] = buffer.argb(c[1], c[2], c[3], (c[4] or 1) * coverage)
+            end
+        end
+        return buffer.attach(tree, buf), width, h
     end
 
-    local st = monitor_state.stacking
-    st.grabbed_surface = surface
-    st.mode = "move"
-    local x, y = surface_position(surface)
-    st.grab_x = cursor_x - x
-    st.grab_y = cursor_y - y
+    local stacking = {}
 
-    return true
-end
-
-function stacking:update_move(monitor_state, cursor_x, cursor_y)
-    local st = monitor_state.stacking
-    if st.mode ~= "move" or not st.grabbed_surface then
-        return
+    local function destroy_decorations(w)
+        local d = w.data.stacking
+        if not d then return end
+        for _, off in ipairs(d.handlers) do off() end
+        d.tree.node:destroy()
+        w.data.stacking = nil
     end
 
-    local surface = st.grabbed_surface
-    if not has_scene(surface) then return end
+    local function build_decorations(w)
+        destroy_decorations(w)
+        if not decorated then return end
+        local g = w:geometry()
+        if g.width <= 0 then return end
 
-    local new_x = cursor_x - st.grab_x
-    local new_y = cursor_y - st.grab_y
+        local tree = lib.wlr_scene_tree_create(w.tree)
+        tree.node:set_position(g.x, g.y - height)
+        local d = { tree = tree, width = g.width, x = g.x, y = g.y, title = w:title(), handlers = {} }
+        w.data.stacking = d
 
-    surface:set_position(new_x, new_y)
-end
+        local bar = lib.wlr_scene_rect_create(tree, g.width, height, float4(bar_color))
+        d.handlers[#d.handlers + 1] = boring.on_click(bar.node, function(win, button)
+            if button == 0x110 then boring.begin_move(win) end
+        end)
 
-function stacking:end_move(monitor_state)
-    local st = monitor_state.stacking
-    st.grabbed_surface = nil
-    st.mode = "none"
-end
-
---------------------------------------------------------------------------------
--- Interactive Resize
---------------------------------------------------------------------------------
-
-function stacking:begin_resize(monitor_state, surface, cursor_x, cursor_y, edges)
-    if not has_scene(surface) then
-        return false
-    end
-
-    local st = monitor_state.stacking
-    st.grabbed_surface = surface
-    st.mode = "resize"
-    st.resize_edges = edges
-
-    local geo_box = surface_geometry(surface)
-    local x, y = surface_position(surface)
-
-    local border_x = x + geo_box.x
-    if bit.band(edges, wl.WLR_EDGE_RIGHT) ~= 0 then
-        border_x = border_x + geo_box.width
-    end
-
-    local border_y = y + geo_box.y
-    if bit.band(edges, wl.WLR_EDGE_BOTTOM) ~= 0 then
-        border_y = border_y + geo_box.height
-    end
-
-    st.grab_x = cursor_x - border_x
-    st.grab_y = cursor_y - border_y
-
-    st.grab_geobox = ffi.new("struct wlr_box")
-    st.grab_geobox.x = geo_box.x + x
-    st.grab_geobox.y = geo_box.y + y
-    st.grab_geobox.width = geo_box.width
-    st.grab_geobox.height = geo_box.height
-
-    return true
-end
-
-function stacking:update_resize(monitor_state, cursor_x, cursor_y)
-    local st = monitor_state.stacking
-    if st.mode ~= "resize" or not st.grabbed_surface then
-        return
-    end
-
-    local surface = st.grabbed_surface
-    if not has_scene(surface) then return end
-
-    local border_x = cursor_x - st.grab_x
-    local border_y = cursor_y - st.grab_y
-    local new_left = st.grab_geobox.x
-    local new_right = st.grab_geobox.x + st.grab_geobox.width
-    local new_top = st.grab_geobox.y
-    local new_bottom = st.grab_geobox.y + st.grab_geobox.height
-
-    if bit.band(st.resize_edges, wl.WLR_EDGE_TOP) ~= 0 then
-        new_top = border_y
-        if new_top >= new_bottom then new_top = new_bottom - 1 end
-    elseif bit.band(st.resize_edges, wl.WLR_EDGE_BOTTOM) ~= 0 then
-        new_bottom = border_y
-        if new_bottom <= new_top then new_bottom = new_top + 1 end
-    end
-
-    if bit.band(st.resize_edges, wl.WLR_EDGE_LEFT) ~= 0 then
-        new_left = border_x
-        if new_left >= new_right then new_left = new_right - 1 end
-    elseif bit.band(st.resize_edges, wl.WLR_EDGE_RIGHT) ~= 0 then
-        new_right = border_x
-        if new_right <= new_left then new_right = new_left + 1 end
-    end
-
-    local geo_box = surface_geometry(surface)
-    surface:set_position(new_left - geo_box.x, new_top - geo_box.y)
-
-    local new_width = new_right - new_left
-    local new_height = new_bottom - new_top
-    surface:set_size(new_width, new_height)
-end
-
-function stacking:end_resize(monitor_state)
-    local st = monitor_state.stacking
-    st.grabbed_surface = nil
-    st.grab_geobox = nil
-    st.mode = "none"
-end
-
--- Fullscreen
---------------------------------------------------------------------------------
-
-function stacking:enter_fullscreen(monitor_state, surface)
-    if not has_scene(surface) then
-        return false
-    end
-
-    if monitor_state.fullscreen_surface and monitor_state.fullscreen_surface ~= surface then
-        self:exit_fullscreen(monitor_state)
-    end
-
-    local surface_service = require("compositor.services.surface")
-    local current_width, current_height = surface_service:get_surface_dimensions(surface)
-    surface._pre_fullscreen = {
-        x = (select(1, surface_position(surface))),
-        y = (select(2, surface_position(surface))),
-        width = current_width,
-        height = current_height,
-    }
-
-    local output_service = require("compositor.services.output")
-    local width, height = output_service:get_output_dimensions(monitor_state.output)
-
-    surface:set_position(0, 0)
-    surface:set_size(width, height)
-
-    monitor_state.fullscreen_surface = surface
-    return true
-end
-
-function stacking:exit_fullscreen(monitor_state)
-    local surface = monitor_state.fullscreen_surface
-    if not surface then
-        return false
-    end
-
-    if surface._pre_fullscreen and has_scene(surface) then
-        surface:set_position(surface._pre_fullscreen.x, surface._pre_fullscreen.y)
-        if surface._pre_fullscreen.width > 0 and surface._pre_fullscreen.height > 0 then
-            surface:set_size(surface._pre_fullscreen.width, surface._pre_fullscreen.height)
+        -- Lay controls out left to right; a spacer takes the remaining width.
+        local fixed, spacers = 0, 0
+        for _, c in ipairs(controls) do
+            if c.type == "button" then fixed = fixed + height
+            elseif c.type == "spacer" then spacers = spacers + 1 end
+        end
+        local x = 0
+        for _, c in ipairs(controls) do
+            if c.type == "title" then
+                local node, tw, th = text_node(tree, d.title, title_color)
+                if node then
+                    node.node:set_position(x + 8, math.floor((height - th) / 2))
+                    -- Clip long titles to the space the bar has.
+                    local avail = math.max(0, g.width - fixed - 16)
+                    if tw > avail then
+                        local box = ffi.new("struct wlr_fbox", { 0, 0, avail, th })
+                        node:set_source_box(box)
+                        node:set_dest_size(avail, th)
+                    end
+                end
+            elseif c.type == "spacer" then
+                x = x + math.max(0, (g.width - fixed) / math.max(spacers, 1))
+            elseif c.type == "button" then
+                local bx = x
+                local rect = lib.wlr_scene_rect_create(tree, height, height, float4(button_bg))
+                rect.node:set_position(math.floor(bx), 0)
+                local node, iw, ih = text_node(tree, ICONS[c.icon] or c.icon or "", button_fg)
+                if node then
+                    node.node:set_position(math.floor(bx + (height - iw) / 2), math.floor((height - ih) / 2))
+                end
+                local on_click = c.on_click
+                d.handlers[#d.handlers + 1] = boring.on_click(rect.node, function(win)
+                    if on_click then on_click(win) end
+                end)
+                x = x + height
+            end
         end
     end
 
-    surface._pre_fullscreen = nil
-    monitor_state.fullscreen_surface = nil
-    return true
+    local function update_decorations(w)
+        if not decorated then return end
+        local d = w.data.stacking
+        local g = w:geometry()
+        if not d or d.width ~= g.width or d.title ~= w:title() then
+            build_decorations(w)
+        elseif d.x ~= g.x or d.y ~= g.y then
+            d.x, d.y = g.x, g.y
+            d.tree.node:set_position(g.x, g.y - height)
+        end
+    end
+    stacking.update_decorations = update_decorations
+
+    function stacking:on_window_add(monitor, w)
+        -- Centre in the usable area, title bar included.
+        local area = monitor.output.usable
+        local g = w:geometry()
+        local top = decorated and height or 0
+        local x = area.x + math.max(0, (area.width - g.width) / 2) - g.x
+        local y = area.y + top + math.max(0, (area.height - g.height - top) / 2) - g.y
+        w:set_position(x, y)
+        build_decorations(w)
+    end
+
+    function stacking:on_window_remove(monitor, w)
+        destroy_decorations(w)
+        if monitor.stacking_saved then monitor.stacking_saved[w] = nil end
+    end
+
+    function stacking:shutdown(monitor)
+        for _, w in ipairs(monitor.windows) do destroy_decorations(w) end
+    end
+
+    -- Moves and resizes are the pointer's built-in floating behaviour.
+
+    function stacking:enter_fullscreen(monitor, w)
+        monitor.stacking_saved = monitor.stacking_saved or {}
+        local x, y = w:position()
+        local width, h = w:size()
+        monitor.stacking_saved[w] = { x = x, y = y, width = width, height = h }
+        local d = w.data.stacking
+        if d then d.tree.node:set_enabled(false) end
+        local area = monitor.output:box()
+        local g = w:geometry()
+        w:set_position(area.x - g.x, area.y - g.y)
+        w:set_size(area.width, area.height)
+        w:raise()
+        return true
+    end
+
+    function stacking:exit_fullscreen(monitor)
+        local w = monitor.fullscreen_surface
+        local saved = w and monitor.stacking_saved and monitor.stacking_saved[w]
+        if not saved then return end
+        monitor.stacking_saved[w] = nil
+        w:set_position(saved.x, saved.y)
+        w:set_size(saved.width, saved.height)
+        local d = w.data.stacking
+        if d then d.tree.node:set_enabled(true) end
+    end
+
+    return stacking
 end
 
---------------------------------------------------------------------------------
--- Plugin Wrapper
---------------------------------------------------------------------------------
-
-local plugin = {
-    name = "layout-stacking",
-}
-
 function plugin:mount(config)
-    local layout_service = require("compositor.services.layout")
-    layout_service:register("stacking", stacking)
+    local stacking = make_stacking(config or {})
+    self._scope = boring.scope("layout-stacking")
+    self._scope:subscribe(boring.events, "window:commit", stacking.update_decorations)
+    self._scope:subscribe(boring.events, "window:title", stacking.update_decorations)
+    boring.layout.register("stacking", stacking)
     return { layout = stacking }
 end
 
 function plugin:unmount()
-    local layout_service = require("compositor.services.layout")
-    layout_service:unregister("stacking")
+    boring.layout.unregister("stacking")
+    if self._scope then
+        self._scope:close()
+        self._scope = nil
+    end
 end
 
 return plugin

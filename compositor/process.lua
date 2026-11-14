@@ -1,231 +1,160 @@
+-- Child processes: fire-and-forget commands and tracked long-running ones.
+--
+-- Children are reaped from a SIGCHLD handler on the Wayland event loop
+-- (process.setup), so launched programs never linger as zombies. libwayland
+-- blocks SIGCHLD to read it from a signalfd; children reset their signal mask
+-- before exec so they start with a clean one.
+
 local ffi = require("ffi")
 local log = require("shared.log")
-
 require("shared.ffi.libc")
+require("shared.ffi.server")
 
-local SIGTERM = ffi.C.SIGTERM
-local SIGKILL = ffi.C.SIGKILL
-local WNOHANG = ffi.C.WNOHANG
+local C = ffi.C
 
 local process = {}
-local Process = {}
-Process.__index = Process
 
-local all_processes = {}
-
-function process.new(opts)
-    opts = opts or {}
-    local p = setmetatable({
-        _cmd = opts.cmd,
-        _program = opts.program,
-        _args = opts.args or {},
-        _pid = nil,
-        _running = false,
-        _start_method = nil,
-    }, Process)
-    table.insert(all_processes, p)
-    return p
-end
-
-local function build_command(cmd, args)
-    local parts = { cmd }
-    for _, arg in ipairs(args) do
-        if arg:find("[%s\"'\\]") then
-            table.insert(parts, '"' .. arg:gsub('"', '\\"') .. '"')
-        else
-            table.insert(parts, arg)
-        end
-    end
-    return table.concat(parts, " ")
-end
+local tracked = {} -- pid -> process record
+local all = {}     -- every process record created, for stop_all
 
 --- Current working directory (where switch.lua runs from).
 function process.cwd()
     local buf = ffi.new("char[4096]")
-    local result = ffi.C.getcwd(buf, 4096)
-    if result ~= nil then
+    if C.getcwd(buf, 4096) ~= nil then
         return ffi.string(buf)
     end
     return "."
 end
 
-function Process:start()
-    if self._running then
-        log.warn("Process already running (pid %d)", self._pid)
-        return false
-    end
+local empty_mask = ffi.new("sigset_t")
+C.sigemptyset(empty_mask)
 
-    if not self._cmd then
-        log.error("No command specified for process:start()")
-        return false
-    end
-
-    local cmd = build_command(self._cmd, self._args)
-
-
-    local pid = ffi.C.fork()
+local function fork_exec(cmd)
+    local pid = C.fork()
     if pid == 0 then
-        ffi.C.execl("/bin/sh", "/bin/sh", "-c", cmd, ffi.NULL)
-        os.exit(1)
-    elseif pid > 0 then
-        self._pid = pid
-        self._running = true
-        self._start_method = "start"
-
-        return true
-    else
-        log.error("Fork failed")
-        return false
+        C.sigprocmask(C.SIG_SETMASK, empty_mask, nil)
+        C.setsid()
+        C.execl("/bin/sh", "/bin/sh", "-c", cmd, nil)
+        C._exit(127)
     end
+    if pid < 0 then
+        log.error("fork failed for: %s", cmd)
+        return nil
+    end
+    return pid
 end
 
-function Process:start_local()
-    if self._running then
-        log.warn("Process already running (pid %d)", self._pid)
-        return false
-    end
+local function shell_quote(s)
+    if s:match("^[%w%-_./=:@%%+,]+$") then return s end
+    return "'" .. s:gsub("'", "'\\''") .. "'"
+end
 
-    if not self._program then
-        log.error("No program specified for process:start_local()")
-        return false
-    end
+--- Run a shell command and forget about it. Returns the pid or nil.
+function process.spawn(cmd)
+    return fork_exec(cmd)
+end
 
-    local script_dir = process.cwd()
-    local args_str = ""
-    for _, arg in ipairs(self._args) do
-        if arg:find("[%s\"'\\]") then
-            args_str = args_str .. ' "' .. arg:gsub('"', '\\"') .. '"'
-        else
-            args_str = args_str .. " " .. arg
+local status = ffi.new("int[1]")
+
+local function reap()
+    while true do
+        local pid = C.waitpid(-1, status, C.WNOHANG)
+        if pid <= 0 then break end
+        local p = tracked[pid]
+        if p then
+            tracked[pid] = nil
+            p.pid = nil
         end
     end
+end
 
-    -- Get the Wayland display socket from core_service and pass it explicitly
-    -- Also set GDK_BACKEND=wayland to force GTK to use Wayland instead of X11
-    -- LD_PRELOAD gtk4-layer-shell so it loads before libwayland-client (required for layer shell to work)
-    -- Use export so the variables persist across the && chain
-    local core_service = require("compositor.services.core")
-    local socket_name = core_service:get_socket_name()
-    local env_setup = ""
-    if socket_name then
-        env_setup = string.format(
-            "export WAYLAND_DISPLAY=%s GDK_BACKEND=wayland LD_PRELOAD=/usr/lib/libgtk4-layer-shell.so; ",
-            socket_name
-        )
-    end
-
-    local cmd = string.format("%scd %s && luajit switch.lua %s%s", env_setup, script_dir, self._program, args_str)
-
-
-    local pid = ffi.C.fork()
-    if pid == 0 then
-        ffi.C.execl("/bin/sh", "/bin/sh", "-c", cmd, ffi.NULL)
-        os.exit(1)
-    elseif pid > 0 then
-        self._pid = pid
-        self._running = true
-        self._start_method = "start_local"
-
-        return true
+-- Process record functions (shared, not per-record closures).
+local function command(p)
+    local parts
+    if p.cmd then
+        parts = { p.cmd }
     else
-        log.error("Fork failed")
+        -- A boring program, e.g. "clients.wallpaper", run from this checkout.
+        parts = { "cd", shell_quote(process.cwd()), "&&", "exec", "luajit", "switch.lua", p.program }
+    end
+    for _, a in ipairs(p.args) do parts[#parts + 1] = shell_quote(a) end
+    return table.concat(parts, " ")
+end
+
+local function is_running(p)
+    if p.pid == nil then return false end
+    reap()
+    return p.pid ~= nil
+end
+
+local function start(p)
+    if is_running(p) then
+        log.warn("process already running (pid %d)", p.pid)
         return false
     end
+    local pid = fork_exec(command(p))
+    if not pid then return false end
+    p.pid = pid
+    tracked[pid] = p
+    return true
 end
 
-function Process:stop()
-    if not self._running or not self._pid then
-        return true
-    end
-
-
-    local result = ffi.C.kill(self._pid, SIGTERM)
-    if result == 0 then
-        local status = ffi.new("int[1]")
-        ffi.C.waitpid(self._pid, status, 0)
-        self._running = false
-        self._pid = nil
-        return true
-    end
-    return false
+local function signal_and_wait(p, sig)
+    if not is_running(p) then return true end
+    local pid = p.pid
+    if C.kill(pid, sig) ~= 0 then return false end
+    C.waitpid(pid, status, 0)
+    tracked[pid] = nil
+    p.pid = nil
+    return true
 end
 
-function Process:kill()
-    if not self._running or not self._pid then
-        return true
-    end
-
-
-    local result = ffi.C.kill(self._pid, SIGKILL)
-    if result == 0 then
-        local status = ffi.new("int[1]")
-        ffi.C.waitpid(self._pid, status, 0)
-        self._running = false
-        self._pid = nil
-        return true
-    end
-    return false
+local function stop(p) return signal_and_wait(p, C.SIGTERM) end
+local function kill(p) return signal_and_wait(p, C.SIGKILL) end
+local function restart(p)
+    stop(p)
+    return start(p)
 end
+local function set_args(p, args) p.args = args or {} end
 
-function Process:restart()
-    self:stop()
-    if self._start_method == "start_local" then
-        return self:start_local()
-    else
-        return self:start()
-    end
-end
-
-function Process:is_running()
-    if not self._running or not self._pid then
-        return false
-    end
-
-    local status = ffi.new("int[1]")
-    local result = ffi.C.waitpid(self._pid, status, WNOHANG)
-    if result == self._pid then
-        self._running = false
-        self._pid = nil
-        return false
-    elseif result == 0 then
-        return true
-    else
-        self._running = false
-        self._pid = nil
-        return false
-    end
-end
-
-function Process:pid()
-    return self._pid
-end
-
-function Process:set_args(args)
-    self._args = args or {}
-end
-
-function Process:set_cmd(cmd)
-    self._cmd = cmd
-end
-
-function Process:set_program(program)
-    self._program = program
+--- A restartable process.
+---@param opts table { cmd = "shell command" } or { program = "clients.x" }, plus args = {...}
+function process.new(opts)
+    assert(opts.cmd or opts.program, "process.new needs cmd or program")
+    local p = {
+        cmd = opts.cmd,
+        program = opts.program,
+        args = opts.args or {},
+        pid = nil,
+        start = start,
+        stop = stop,
+        kill = kill,
+        restart = restart,
+        is_running = is_running,
+        set_args = set_args,
+    }
+    all[#all + 1] = p
+    return p
 end
 
 function process.stop_all()
-    for _, p in ipairs(all_processes) do
-        if p:is_running() then
-            p:stop()
-        end
+    for _, p in ipairs(all) do
+        stop(p)
     end
 end
 
-function process.kill_all()
-    for _, p in ipairs(all_processes) do
-        if p:is_running() then
-            p:kill()
-        end
-    end
+--- Reap children whenever SIGCHLD arrives on the server's event loop.
+function process.setup(server)
+    local lib = require("shared.wl").lib
+    local handler = ffi.cast("wl_event_loop_signal_func_t", function()
+        reap()
+        return 0
+    end)
+    local source = lib.wl_event_loop_add_signal(server.event_loop, C.SIGCHLD, handler, nil)
+    server.scope:defer(function()
+        lib.wl_event_source_remove(source)
+        handler:free()
+    end)
 end
 
 return process

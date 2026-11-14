@@ -21,6 +21,11 @@ local function load_plugin_module(path)
     if not fn then
         return nil, "Failed to load plugin: " .. err
     end
+    -- Plugins share the configuration's environment (boring, color, ...).
+    local runtime = require("compositor.config")
+    if runtime._current then
+        setfenv(fn, runtime._current.env)
+    end
 
     local ok, result = pcall(fn)
     if not ok then

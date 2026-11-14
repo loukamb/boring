@@ -1,213 +1,97 @@
 -- plugins/wallpaper.lua
--- Native wallpaper plugin - renders directly in compositor scene graph
--- For color wallpapers: uses wlr_scene_rect (native)
--- For image wallpapers: starts the wallpaper client (Wayland client)
+-- Wallpapers: a solid colour drawn in the scene, or an image shown by the
+-- wallpaper client (clients/wallpaper.lua, a layer-shell client).
+--
+--   plugin("@boring/wallpaper"):mount({
+--       ["*"] = "#fef3c7",                                  -- every output
+--       [monitor] = { image = "/path/to.jpg", scale = "fill" }, -- fill, fit, stretch, center, tile
+--   })
+--
+-- Keys are output names, "*", or monitor objects from monitor.new.
 
-local log = require("shared.log")
-local wl = require("shared.wayland.server")
 local color = require("shared.color")
-local process = require("compositor.process")
-local ffi = wl._ffi
+local ffi = require("ffi")
 
-local plugin = {
-    name = "wallpaper",
-}
+local plugin = { name = "wallpaper" }
 
--- State
-local background_nodes = {}    -- Output object -> { type = "rect"|"client", node = scene_node, process = Process }
-local config_cache = nil
-local wallpaper_processes = {} -- track client processes
+local DEFAULT = "#1a1a2e"
 
--- Parse color to RGBA float array (0-1 range) for wlroots
-local function parse_color(value)
-    if type(value) == "string" and value:sub(1, 1) == "#" then
-        local c = color.hex(value)
-        if c then
-            return ffi.new("float[4]", c)
-        end
-    elseif type(value) == "table" then
-        return ffi.new("float[4]", value) -- Already a float array
-    end
-    -- Default dark gray
-    return ffi.new("float[4]", { 0.2, 0.2, 0.2, 1.0 })
-end
-
--- Start wallpaper client for an output with image config
-local function start_wallpaper_client(output_name, image_path, scale_mode)
-    local p = process.new({ program = "clients.wallpaper" })
-    -- Args parser expects --key=value format
-    p:set_args({
-        string.format("--output=%s", output_name),
-        string.format("--image=%s", image_path),
-        string.format("--scale=%s", scale_mode or "fill"),
-    })
-
-    if p:start_local() then
-        table.insert(wallpaper_processes, p)
-        return p
-    else
-        log.error("Failed to start wallpaper client for %s", output_name)
-        return nil
+local function key_name(key)
+    if type(key) == "string" then return key end
+    if type(key) == "table" then
+        if key.get_name then return key:get_name() end
+        return key.name
     end
 end
 
--- Cleanup existing wallpaper for an output
-local function cleanup_wallpaper(output)
-    local existing = background_nodes[output]
-    if existing then
-        if existing.node then
-            wl.roots.scene_node_destroy(existing.node)
-        end
-        if existing.process and existing.process:is_running() then
-            existing.process:stop()
-        end
-        background_nodes[output] = nil
+local function value_for(config, output_name)
+    local wildcard
+    for key, value in pairs(config) do
+        local name = key_name(key)
+        if name == output_name then return value end
+        if name == "*" then wildcard = value end
     end
-end
-
--- Create or update wallpaper for an output
-local function update_wallpaper_for_output(output)
-    local surface_service = require("compositor.services.surface")
-    local output_service = require("compositor.services.output")
-    local output_name = output.name
-
-    -- Get output dimensions
-    local width, height = output_service:get_output_dimensions(output)
-    if not width or width <= 0 then
-        width = 1920
-        height = 1080
-    end
-
-    -- Find config for this output
-    local wallpaper_value = nil
-    if config_cache then
-        local wildcard_value = nil
-        for key, value in pairs(config_cache) do
-            local key_name = nil
-            if type(key) == "table" and key.name then
-                key_name = key.name
-            elseif type(key) == "table" and key.get_name then
-                key_name = key:get_name()
-            elseif type(key) == "string" then
-                key_name = key
-            end
-
-            if key_name == output_name then
-                wallpaper_value = value
-                break
-            elseif key_name == "*" then
-                wildcard_value = value
-            end
-        end
-        if wallpaper_value == nil then
-            wallpaper_value = wildcard_value
-        end
-    end
-
-    -- Remove existing wallpaper
-    cleanup_wallpaper(output)
-
-    -- Get output position
-    local ox, oy = output_service:get_output_position(output)
-    ox = ox or 0
-    oy = oy or 0
-
-    -- Handle image wallpaper -> use client
-    if type(wallpaper_value) == "table" and wallpaper_value.image then
-        local scale_mode = wallpaper_value.scale or "fill"
-        local p = start_wallpaper_client(output_name, wallpaper_value.image, scale_mode)
-        if p then
-            background_nodes[output] = { type = "client", process = p }
-        end
-        return
-    end
-
-    -- Handle color wallpaper -> use native scene rect
-    if type(wallpaper_value) == "string" and wallpaper_value:sub(1, 1) == "#" then
-        local rgba = parse_color(wallpaper_value)
-        local rect = wl.roots.scene_rect_create(
-            surface_service.layers.background,
-            width, height, rgba
-        )
-        if rect and rect ~= ffi.NULL then
-            wl.roots.scene_node_set_position(rect.node, ox, oy)
-            background_nodes[output] = { type = "rect", node = rect.node }
-        end
-        return
-    end
-
-    -- Default dark background (native)
-    local rgba = parse_color("#1a1a2e")
-    local rect = wl.roots.scene_rect_create(
-        surface_service.layers.background,
-        width, height, rgba
-    )
-    if rect and rect ~= ffi.NULL then
-        wl.roots.scene_node_set_position(rect.node, ox, oy)
-        background_nodes[output] = { type = "rect", node = rect.node }
-    end
+    return wildcard or DEFAULT
 end
 
 function plugin:mount(config)
-    config_cache = config
+    config = config or {}
+    local lib = boring.wl.lib
+    local scope = boring.scope("wallpaper")
+    local per_output = {} -- output -> { rect = scene_rect } or { process = p }
 
-    local output_service = require("compositor.services.output")
-    local core_service = require("compositor.services.core")
+    local function remove(o)
+        local entry = per_output[o]
+        if not entry then return end
+        if entry.rect then entry.rect.node:destroy() end
+        if entry.process then entry.process:stop() end
+        per_output[o] = nil
+    end
 
-    -- Subscribe to compositor:ready to create wallpapers after outputs exist
-    self._ready_listener = core_service.events:on("compositor:ready", function()
-        -- Create wallpapers for existing outputs
-        local outputs = output_service:get_outputs()
-        for _, output in ipairs(outputs) do
-            update_wallpaper_for_output(output)
+    local function place(o)
+        local entry = per_output[o]
+        if entry and entry.rect then
+            local b = o:box()
+            entry.rect:set_size(b.width, b.height)
+            entry.rect.node:set_position(b.x, b.y)
         end
+    end
+
+    local function add(o)
+        remove(o)
+        local value = value_for(config, o.name)
+        if type(value) == "table" and value.image then
+            local p = boring.process.new({
+                program = "clients.wallpaper",
+                args = { "--output=" .. o.name, "--image=" .. value.image, "--scale=" .. (value.scale or "fill") },
+            })
+            p:start()
+            per_output[o] = { process = p }
+            return
+        end
+        local c = color.hex(type(value) == "string" and value or DEFAULT) or color.hex(DEFAULT)
+        local rgba = ffi.new("float[4]", { c[1] * c[4], c[2] * c[4], c[3] * c[4], c[4] })
+        per_output[o] = { rect = lib.wlr_scene_rect_create(boring.layers.background, 1, 1, rgba) }
+        place(o)
+    end
+
+    for _, o in ipairs(boring.outputs()) do add(o) end
+    scope:subscribe(boring.events, "output:add", add)
+    scope:subscribe(boring.events, "output:change", place)
+    scope:subscribe(boring.events, "output:remove", remove)
+    scope:defer(function()
+        for o in pairs(per_output) do remove(o) end
     end)
 
-    -- Listen for new outputs
-    self._output_add_listener = output_service.events:on("output:add", function(output)
-        update_wallpaper_for_output(output)
-    end)
-
-    -- Listen for output removal
-    self._output_remove_listener = output_service.events:on("output:remove", function(output)
-        cleanup_wallpaper(output)
-    end)
-
+    self._scope = scope
     return {}
 end
 
 function plugin:unmount()
-    -- Clean up listeners
-    if self._ready_listener and self._ready_listener.off then
-        self._ready_listener:off()
+    if self._scope then
+        self._scope:close()
+        self._scope = nil
     end
-    if self._output_add_listener and self._output_add_listener.off then
-        self._output_add_listener:off()
-    end
-    if self._output_remove_listener and self._output_remove_listener.off then
-        self._output_remove_listener:off()
-    end
-
-    -- Destroy background nodes and stop client processes
-    for _, entry in pairs(background_nodes) do
-        if entry.node then
-            wl.roots.scene_node_destroy(entry.node)
-        end
-        if entry.process and entry.process:is_running() then
-            entry.process:stop()
-        end
-    end
-    background_nodes = {}
-
-    -- Stop any remaining wallpaper processes
-    for _, p in ipairs(wallpaper_processes) do
-        if p:is_running() then
-            p:stop()
-        end
-    end
-    wallpaper_processes = {}
-
-    config_cache = nil
 end
 
 return plugin

@@ -88,9 +88,8 @@ plugin("@boring/layout-stacking"):mount({
         {
             type = "button",
             icon = "close",
-            on_click = function(surface)
-                local wl = require("shared.wayland.server")
-                surface:close()
+            on_click = function(window)
+                window:close()
             end
         },
     }

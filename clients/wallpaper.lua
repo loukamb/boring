@@ -181,6 +181,28 @@ local function create_surface_for_output(output_data)
     table.insert(state.surfaces, surf_data)
 end
 
+-- One wl_output listener for every output; only the name matters here.
+local output_listener_struct = nil
+local output_listener
+output_listener = function()
+    if output_listener_struct then return output_listener_struct end
+    local l = ffi.new("struct wl_output_listener")
+    local function noop() end
+    l.geometry = wl.persistent_callback("void(*)(void*, struct wl_output*, int32_t, int32_t, int32_t, int32_t, int32_t, const char*, const char*, int32_t)", noop)
+    l.mode = wl.persistent_callback("void(*)(void*, struct wl_output*, uint32_t, int32_t, int32_t, int32_t)", noop)
+    l.done = wl.persistent_callback("void(*)(void*, struct wl_output*)", noop)
+    l.scale = wl.persistent_callback("void(*)(void*, struct wl_output*, int32_t)", noop)
+    l.name = wl.persistent_callback("void(*)(void*, struct wl_output*, const char*)", function(_, output, name)
+        for _, entry in ipairs(state.outputs) do
+            if entry.output == output then entry.output_name = ffi.string(name) end
+        end
+    end)
+    l.description = wl.persistent_callback("void(*)(void*, struct wl_output*, const char*)", noop)
+    table.insert(wl._prevent_gc, l)
+    output_listener_struct = l
+    return l
+end
+
 local function handle_global(data, registry, name, interface, version)
     local iface = wl.string(interface)
 
@@ -194,9 +216,13 @@ local function handle_global(data, registry, name, interface, version)
         local proxy = wl.registry_bind(registry, name, wl.zwlr_layer_shell_v1_interface, 4)
         state.layer_shell = ffi.cast("struct zwlr_layer_shell_v1*", proxy)
     elseif iface == "wl_output" then
-        local proxy = wl.registry_bind(registry, name, wl._wl.wl_output_interface, 1)
+        -- v4 announces the output's name, which is how --output picks it.
+        local proxy = wl.registry_bind(registry, name, wl._wl.wl_output_interface, math.min(version, 4))
         local output = ffi.cast("struct wl_output*", proxy)
-        table.insert(state.outputs, { output = output, name = name })
+        local entry = { output = output, name = name, output_name = nil }
+        table.insert(state.outputs, entry)
+        wl._wl.wl_proxy_add_listener(ffi.cast("struct wl_proxy*", output),
+            ffi.cast("void (**)(void)", output_listener()), nil)
     end
 end
 
@@ -271,8 +297,10 @@ local function main(args)
         return 1
     end
 
+    -- Second roundtrip: wl_output name events arrive after binding.
+    wl.display_roundtrip(state.display)
     for _, output_data in ipairs(state.outputs) do
-        if state.config.output == "*" then
+        if state.config.output == "*" or state.config.output == output_data.output_name then
             create_surface_for_output(output_data)
         end
     end

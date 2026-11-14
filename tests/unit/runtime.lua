@@ -1,6 +1,6 @@
 return function(t)
     local runtime = require("compositor.config.init")
-    local ConfigObject = require("compositor.config.object")
+    local rules = require("compositor.config.rules")
 
     t.test("run_once executes every verb in a list once", function()
         runtime.reset_run_once()
@@ -27,8 +27,8 @@ return function(t)
 
     t.test("exact config rules override wildcard rules regardless of order", function()
         local rules = {
-            ConfigObject.new("monitor", { name = "HDMI-A-1", wallpaper = "exact", nested = { value = "exact" } }),
-            ConfigObject.new("monitor", { name = "*", wallpaper = "wildcard", nested = { other = "wildcard" } }),
+            rules.new("monitor", { name = "HDMI-A-1", wallpaper = "exact", nested = { value = "exact" } }),
+            rules.new("monitor", { name = "*", wallpaper = "wildcard", nested = { other = "wildcard" } }),
         }
 
         local resolved = runtime.resolve_rules(rules, "HDMI-A-1")

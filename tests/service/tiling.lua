@@ -10,9 +10,7 @@ return function(t)
     local function state()
         local monitor_state = {
             output = {
-                dimensions = function()
-                    return 800, 600
-                end,
+                usable = { x = 0, y = 0, width = 800, height = 600 },
             },
             config = { gaps = { inner = 0, outer = 0, smart = false } },
         }

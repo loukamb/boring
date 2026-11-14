@@ -74,6 +74,7 @@ int vips_colourspace(VipsImage *in, VipsImage **out, int space, ...);
 int vips_flatten(VipsImage *in, VipsImage **out, ...);
 int vips_bandjoin_const1(VipsImage *in, VipsImage **out, double c, ...);
 int vips_cast(VipsImage *in, VipsImage **out, int bandfmt, ...);
+int vips_text(VipsImage **out, const char *text, ...);
 
 void g_object_unref(void *object);
 void g_free(void *mem);
@@ -293,6 +294,28 @@ function Image:free()
         gobject.g_object_unref(self._img)
         self._img = nil
     end
+end
+
+--- Render text to an 8-bit alpha mask.
+--- Returns width, height and a Lua string of width*height coverage bytes,
+--- or nil if the text is empty.
+---@param text string
+---@param font string|nil Pango font description, e.g. "Sans Bold 10"
+---@param dpi number|nil
+function image.text(text, font, dpi)
+    if text == nil or text == "" then return nil end
+    ensure_init()
+    local out = ffi.new("VipsImage*[1]")
+    local result = vips.vips_text(out, text, "font", font or "Sans 10",
+        "dpi", ffi.cast("int", dpi or 96), nil)
+    check_error(result, "text")
+    local img = wrap_image(out[0])
+    local width, height = img:width(), img:height()
+    local ptr, size = img:write_to_memory()
+    local bytes = ffi.string(ptr, size)
+    image.free_buffer(ptr)
+    img:free()
+    return width, height, bytes
 end
 
 function image.free_buffer(ptr)

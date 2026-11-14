@@ -69,11 +69,15 @@ The dependencies for development are the same as for usage. If you can run the c
 
 ### Project tree
 
-- [**`/compositor`**](/compositor/): Source code for the compositor
-- [**`/clients`**](/clients/): Tiny programs providing basic desktop functionality
-- [**`/shared`**](/shared/): Common utilities shared across the programs in this repo
+- [**`/compositor`**](/compositor/): The compositor: one module per responsibility, sharing a `server` record
 - [**`/plugins`**](/plugins/): Default plugins
+- [**`/clients`**](/clients/): Tiny programs providing basic desktop functionality
+- [**`/shared`**](/shared/): Code shared by the programs: FFI bindings (`ffi`), wlroots helpers (`wl`), utilities
+- [**`/tools`**](/tools/): Development tools (FFI binding generator and checks)
+- [**`/dev`**](/dev/): Development VM for macOS
 - [**`/website`**](/website/): Website for the project
+
+See [ARCHITECTURE.md](/ARCHITECTURE.md) for the design and coding principles.
 
 ### FFI bindings
 
@@ -110,10 +114,10 @@ luajit tests/run.lua --suite integration --format tap
 Lifecycle hygiene check:
 
 ```bash
-rg "create_listener|destroy_listener|ffi\\.cast" compositor plugins
+rg "listener\.connect|setmetatable" compositor plugins
 ```
 
-This should return no matches. Listener ownership in compositor services and plugins should go through `shared.scope`; raw listener helpers and casts belong in `shared/wayland` and targeted listener tests.
+This should only match `compositor/config` (the configuration sandbox). Listeners in compositor modules and plugins go through a scope (`scope:listen`), so they're disconnected when the object they belong to goes away.
 
 ### Plugins
 
@@ -142,7 +146,26 @@ end
 return plugin
 ```
 
-Plugins and configuration possess the same environment, so anything that's possible in configuration is possible in plugins. Technically speaking, your configuration file _is_ a plugin with simply special considerations.
+Plugins and configuration share the same environment, so anything that's possible in configuration is possible in plugins. Both talk to the compositor through the `boring` global ([`compositor/api.lua`](/compositor/api.lua)):
+
+```lua
+function plugin:mount(config)
+    -- A scope undoes everything registered through it when closed.
+    self.scope = boring.scope("my-plugin")
+
+    self.scope:subscribe(boring.events, "window:map", function(window)
+        print("new window", window:title(), window:app_id())
+        window:set_position(100, 100)
+    end)
+    self.scope:subscribe(boring.events, "window:focus", function(window) end)
+end
+
+function plugin:unmount()
+    self.scope:close()
+end
+```
+
+Events: `window:map`, `window:unmap`, `window:focus`, `window:blur`, `window:commit`, `window:title`, `output:add`, `output:change`, `output:remove`, `ready`, `shutdown`. Windows have `position`, `set_position`, `geometry`, `bounds`, `size`, `set_size`, `raise`, `close`, `title`, `app_id`, `set_enabled` and a `data` table for plugin state ([`compositor/window.lua`](/compositor/window.lua)). Layouts are registered with `boring.layout.register(name, impl)` ([`compositor/layout.lua`](/compositor/layout.lua) documents the interface). For anything else, `boring.wl` gives direct access to wlroots and `boring.server` to the compositor's objects.
 
 For examples on how to write plugins, see the [default plugins](/plugins/).
 
