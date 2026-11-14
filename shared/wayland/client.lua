@@ -1,8 +1,9 @@
 -- shared/wayland/client.lua
 -- Wayland client library
 
-local base = require("shared.wayland.base")
-local ffi = base.ffi
+local bit = require("bit")
+local ffi = require("ffi")
+local interface = require("shared.wayland.interface")
 
 --------------------------------------------------------------------------------
 -- Load the wayland client library
@@ -17,7 +18,7 @@ local lib = require("shared.ffi.lib").open({ "libwayland-client.so.0" })
 
 
 --------------------------------------------------------------------------------
--- Create wayland namespace with base inheritance and wl_ prefix lookup
+-- The client namespace
 --------------------------------------------------------------------------------
 
 local wayland = {}
@@ -27,7 +28,7 @@ wayland._lib = lib
 wayland._wl = lib -- Legacy accessor
 wayland._ffi = ffi
 wayland._C = ffi.C
-wayland.bit = base.bit
+wayland.bit = bit
 wayland._prevent_gc = {}
 
 --------------------------------------------------------------------------------
@@ -45,33 +46,31 @@ wayland.O_RDWR = ffi.C.O_RDWR
 wayland.O_CREAT = ffi.C.O_CREAT
 wayland.O_EXCL = ffi.C.O_EXCL
 
--- Metatable that tries: 1) wl_ prefix in lib, 2) base module
-setmetatable(wayland, {
-    __index = function(_, key)
-        -- Try wl_ prefix lookup in lib
-        local full_name = "wl_" .. key
-        local ok, fn = pcall(function() return lib[full_name] end)
-        if ok and fn ~= nil then
-            rawset(wayland, key, fn)
-            return fn
-        end
-        -- Try ffi.C for wl_ prefix
-        ok, fn = pcall(function() return ffi.C[full_name] end)
-        if ok and fn ~= nil then
-            rawset(wayland, key, fn)
-            return fn
-        end
-        -- Fall back to base module
-        return base[key]
-    end
-})
+-- libwayland-client functions used directly by clients.
+wayland.display_connect = lib.wl_display_connect
+wayland.display_disconnect = lib.wl_display_disconnect
+wayland.display_dispatch = lib.wl_display_dispatch
+wayland.display_roundtrip = lib.wl_display_roundtrip
+
+function wayland.is_null(ptr)
+    return ptr == nil
+end
+
+function wayland.string(ptr)
+    if ptr == nil then return nil end
+    return ffi.string(ptr)
+end
 
 --------------------------------------------------------------------------------
 -- Utility functions
 --------------------------------------------------------------------------------
 
+--- An ffi callback that lives as long as the process (listener structs
+--- given to libwayland keep pointing at it).
 function wayland.persistent_callback(signature, fn)
-    return base.persistent_callback(wayland, signature, fn)
+    local cb = ffi.cast(signature, fn)
+    table.insert(wayland._prevent_gc, cb)
+    return cb
 end
 
 --------------------------------------------------------------------------------
@@ -220,7 +219,7 @@ function wayland.create_shm_buffer(shm, width, height, format)
 
     shm_counter = shm_counter + 1
     local name = string.format("/wl_shm-%d-%d", tonumber(ffi.C.getpid()), shm_counter)
-    local fd = ffi.C.shm_open(name, base.bit.bor(wayland.O_RDWR, wayland.O_CREAT, wayland.O_EXCL), 0x180)
+    local fd = ffi.C.shm_open(name, bit.bor(wayland.O_RDWR, wayland.O_CREAT, wayland.O_EXCL), 0x180)
     if fd < 0 then
         return nil, nil, nil, "shm_open failed"
     end
@@ -231,7 +230,7 @@ function wayland.create_shm_buffer(shm, width, height, format)
         return nil, nil, nil, "ftruncate failed"
     end
 
-    local data = ffi.C.mmap(nil, size, base.bit.bor(wayland.PROT_READ, wayland.PROT_WRITE), wayland.MAP_SHARED, fd, 0)
+    local data = ffi.C.mmap(nil, size, bit.bor(wayland.PROT_READ, wayland.PROT_WRITE), wayland.MAP_SHARED, fd, 0)
     if data == ffi.cast("void*", -1) then
         ffi.C.close(fd)
         return nil, nil, nil, "mmap failed"
@@ -249,90 +248,11 @@ end
 -- Layer shell protocol definitions
 --------------------------------------------------------------------------------
 
-local function cstr(s)
-    local c = ffi.new("char[?]", #s + 1, s)
-    table.insert(wayland._prevent_gc, c)
-    return c
-end
-
-local layer_shell_strings = {
-    name = cstr("zwlr_layer_shell_v1"),
-    get_layer_surface = cstr("get_layer_surface"),
-    get_layer_surface_sig = cstr("no?ous"),
-    destroy = cstr("destroy"),
-    empty_sig = cstr(""),
-}
-
-local layer_surface_strings = {
-    name = cstr("zwlr_layer_surface_v1"),
-    set_size = cstr("set_size"),
-    set_anchor = cstr("set_anchor"),
-    set_exclusive_zone = cstr("set_exclusive_zone"),
-    set_margin = cstr("set_margin"),
-    set_keyboard_interactivity = cstr("set_keyboard_interactivity"),
-    get_popup = cstr("get_popup"),
-    ack_configure = cstr("ack_configure"),
-    destroy = cstr("destroy"),
-    set_layer = cstr("set_layer"),
-    set_exclusive_edge = cstr("set_exclusive_edge"),
-    configure = cstr("configure"),
-    closed = cstr("closed"),
-    sig_uu = cstr("uu"),
-    sig_u = cstr("u"),
-    sig_i = cstr("i"),
-    sig_iiii = cstr("iiii"),
-    sig_o = cstr("o"),
-    sig_uuu = cstr("uuu"),
-    sig_empty = cstr(""),
-}
-
-local layer_surface_v1_types = ffi.new("const struct wl_interface*[5]", {
-    nil,
-    lib.wl_surface_interface,
-    lib.wl_output_interface,
-    nil,
-    nil,
-})
-
-local layer_shell_v1_requests = ffi.new("struct wl_message[2]", {
-    { layer_shell_strings.get_layer_surface, layer_shell_strings.get_layer_surface_sig, layer_surface_v1_types },
-    { layer_shell_strings.destroy,           layer_shell_strings.empty_sig,             nil },
-})
-
-local zwlr_layer_shell_v1_interface = ffi.new("struct wl_interface", {
-    layer_shell_strings.name, 4, 2, layer_shell_v1_requests, 0, nil
-})
-wayland.zwlr_layer_shell_v1_interface = zwlr_layer_shell_v1_interface
-
-local layer_surface_v1_requests = ffi.new("struct wl_message[10]", {
-    { layer_surface_strings.set_size,                   layer_surface_strings.sig_uu,    nil },
-    { layer_surface_strings.set_anchor,                 layer_surface_strings.sig_u,     nil },
-    { layer_surface_strings.set_exclusive_zone,         layer_surface_strings.sig_i,     nil },
-    { layer_surface_strings.set_margin,                 layer_surface_strings.sig_iiii,  nil },
-    { layer_surface_strings.set_keyboard_interactivity, layer_surface_strings.sig_u,     nil },
-    { layer_surface_strings.get_popup,                  layer_surface_strings.sig_o,     nil },
-    { layer_surface_strings.ack_configure,              layer_surface_strings.sig_u,     nil },
-    { layer_surface_strings.destroy,                    layer_surface_strings.sig_empty, nil },
-    { layer_surface_strings.set_layer,                  layer_surface_strings.sig_u,     nil },
-    { layer_surface_strings.set_exclusive_edge,         layer_surface_strings.sig_u,     nil },
-})
-
-local layer_surface_v1_events = ffi.new("struct wl_message[2]", {
-    { layer_surface_strings.configure, layer_surface_strings.sig_uuu,   nil },
-    { layer_surface_strings.closed,    layer_surface_strings.sig_empty, nil },
-})
-
-local zwlr_layer_surface_v1_interface = ffi.new("struct wl_interface", {
-    layer_surface_strings.name, 4, 10, layer_surface_v1_requests, 2, layer_surface_v1_events
-})
-wayland.zwlr_layer_surface_v1_interface = zwlr_layer_surface_v1_interface
-
-table.insert(wayland._prevent_gc, layer_surface_v1_types)
-table.insert(wayland._prevent_gc, layer_shell_v1_requests)
-table.insert(wayland._prevent_gc, layer_surface_v1_requests)
-table.insert(wayland._prevent_gc, layer_surface_v1_events)
-table.insert(wayland._prevent_gc, zwlr_layer_shell_v1_interface)
-table.insert(wayland._prevent_gc, zwlr_layer_surface_v1_interface)
+-- Built from the protocol XML (shared/wayland/interface.lua).
+wayland.zwlr_layer_shell_v1_interface = interface.get("zwlr_layer_shell_v1", lib)
+wayland.zwlr_layer_surface_v1_interface = interface.get("zwlr_layer_surface_v1", lib)
+local zwlr_layer_shell_v1_interface = wayland.zwlr_layer_shell_v1_interface
+local zwlr_layer_surface_v1_interface = wayland.zwlr_layer_surface_v1_interface
 
 --------------------------------------------------------------------------------
 -- Layer surface protocol functions

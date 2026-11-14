@@ -24,6 +24,9 @@ local log = {
     },
 }
 
+-- Log lines appear immediately even when stdout is a file or a pipe.
+io.stdout:setvbuf("line")
+
 function log.info(fmt, ...)
     print(string.format(log.color.blue("[info] ") .. fmt, ...))
 end

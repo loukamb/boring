@@ -86,6 +86,12 @@ function harness.start(opts)
     os.execute("chmod 700 " .. shell_quote(runtime_dir))
     local log_file = runtime_dir .. "/compositor.log"
     local config = opts.config or "tests/fixtures/minimal_config.lua"
+    if opts.copy_config then
+        -- A private copy the test may edit.
+        local copy = runtime_dir .. "/config.lua"
+        os.execute("cp " .. shell_quote(config) .. " " .. shell_quote(copy))
+        config = copy
+    end
     local env = "XDG_RUNTIME_DIR=" .. shell_quote(runtime_dir) .. " WAYLAND_DISPLAY=wayland-0"
 
     local pid = read_command(table.concat({
@@ -94,7 +100,7 @@ function harness.start(opts)
         ">" .. shell_quote(log_file), "2>&1 & echo $!",
     }, " ")):match("%d+")
 
-    local handle = { runtime_dir = runtime_dir, env = env, log_file = log_file, pid = pid }
+    local handle = { runtime_dir = runtime_dir, env = env, log_file = log_file, pid = pid, config = config }
 
     function handle.log()
         local f = io.open(log_file, "r")

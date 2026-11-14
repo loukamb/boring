@@ -3,27 +3,42 @@
 -- settings for devices from it.
 
 local config = require("compositor.config")
+local log = require("shared.log")
 
 local state = {}
 
 --- Load (or reload) the configuration file. Unmounts plugins mounted by the
 --- previous load; the config mounts the ones it wants again.
+---
+--- The first load fails hard. A reload with a broken config (syntax error)
+--- is refused and the running config stays in place.
 function state.reload_config(path)
+    local first = state.path == nil
+    path = path or state.path
     if not path then
         local paths = require("compositor.config.paths")
         path = paths.find_config() or "default.lua"
     end
+
+    local fn, err = loadfile(path)
+    if not fn then
+        if first then error("failed to load config: " .. tostring(err), 0) end
+        log.error("not reloading, the config has errors: %s", tostring(err))
+        return false
+    end
     state.path = path
 
     require("compositor.plugin").unmount_all()
-
     local instance = config.new()
     config._current = instance
-
-    local fn, err = loadfile(path)
-    assert(fn, "failed to load config: " .. tostring(err))
     local ok, run_err = config.execute(instance, fn, "config")
-    assert(ok, "failed to run config: " .. tostring(run_err))
+    if not ok then
+        if first then error("failed to run config: " .. tostring(run_err), 0) end
+        log.error("config failed while reloading: %s", tostring(run_err))
+        return false
+    end
+    if not first then log.info("reloaded %s", path) end
+    return true
 end
 
 --- Run the config's run/run_once verbs (once the compositor is up).

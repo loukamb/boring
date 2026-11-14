@@ -53,6 +53,8 @@ plugins/           Layouts, borders, wallpaper, screenshots, XWayland
 compositor/        The compositor: modules sharing one `server` record
 shared/wl/         Lua helpers over the bindings: listener trampoline, scope,
                    wl_list iteration, metatypes for wlroots structs, buffers
+shared/wayland/    Protocol XML: parser, registry, runtime wl_interface builder,
+                   client-side helpers
 shared/ffi/        Bindings only: generated cdefs + library loading. No logic.
 ```
 
@@ -84,6 +86,7 @@ no module-level singletons to reach into.
 | `protocols.lua` | Protocols wlroots implements, one self-contained entry each |
 | `api.lua` | The `boring` API for config and plugins |
 | `process.lua` | Child processes, reaped via SIGCHLD on the event loop |
+| `watch.lua` | inotify on the event loop (config reload on save) |
 | `config/` | Config sandbox, rules (`monitor`, `input`), `actions` |
 
 Startup order (`compositor/init.lua`): server → modules → config (which

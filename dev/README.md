@@ -29,7 +29,11 @@ scripts/vm down               # stop; `scripts/vm destroy` deletes it
 ```
 
 `scripts/vm run` defaults to `configs/nested-wayland.lua` (it starts `xeyes`);
-pass another with `scripts/vm run --config=default.lua`.
+pass another with `scripts/vm run --config=default.lua`. Edit the config on the
+host and save: the compositor in the VM reloads it.
+
+`scripts/smoke [out.png] [compositor args]` starts boring headless, opens an X11
+and a Wayland client, screenshots, and fails on errors in the log.
 
 ## With a display
 

@@ -51,8 +51,8 @@ local function make_stacking(config)
 
     local lib = boring.wl.lib
     local buffer = require("shared.wl.buffer")
-    local ok_image, image = pcall(require, "shared.image")
-    if not ok_image then image = nil end
+    local image = require("shared.image")
+    if not image.available then image = nil end
 
     -- Text as a scene buffer under `tree`, or nil if there's no text renderer.
     local function text_node(tree, text, c)
@@ -149,6 +149,10 @@ local function make_stacking(config)
     stacking.update_decorations = update_decorations
 
     function stacking:on_window_add(monitor, w)
+        build_decorations(w)
+        -- Windows keep their place when the layout is re-registered (reload).
+        if w.data.stacking_placed then return end
+        w.data.stacking_placed = true
         -- Centre in the usable area, title bar included.
         local area = monitor.output.usable
         local g = w:geometry()
@@ -156,7 +160,6 @@ local function make_stacking(config)
         local x = area.x + math.max(0, (area.width - g.width) / 2) - g.x
         local y = area.y + top + math.max(0, (area.height - g.height - top) / 2) - g.y
         w:set_position(x, y)
-        build_decorations(w)
     end
 
     function stacking:on_window_remove(monitor, w)

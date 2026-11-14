@@ -60,6 +60,12 @@ local function main(args)
     server.events:emit("ready")
     state.execute_startup_verbs()
 
+    -- Saving the config reloads it (disable with --watch=false).
+    if args.watch ~= "false" then
+        local boring = api.current()
+        require("compositor.watch").file(server, state.path, function() boring.reload() end)
+    end
+
     server_mod.run(server)
 
     server.events:emit("shutdown")

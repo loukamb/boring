@@ -101,4 +101,20 @@ return function(t)
             t.eq(r + g + b, 0, "screen must stay blanked after the locker dies")
         end)
     end)
+
+    t.test("saving the config reloads it; a broken config is refused", function()
+        local c, log = compositor.start({ config = "tests/fixtures/clients_config.lua", copy_config = true })
+        if not c then error("compositor failed to start:\n" .. tostring(log)) end
+        local ok, err = pcall(function()
+            c.exec("echo '-- touched' >> " .. c.config)
+            c.exec("sleep 1")
+            t.ok(c.log():find("reloaded", 1, true), "config wasn't reloaded:\n" .. c.log())
+            c.exec("echo 'this is not lua (' >> " .. c.config)
+            c.exec("sleep 1")
+            t.ok(c.log():find("not reloading", 1, true), "broken config wasn't refused:\n" .. c.log())
+            t.ok(c.alive(), "compositor died on a broken config")
+        end)
+        c.stop()
+        if not ok then error(err, 0) end
+    end)
 end

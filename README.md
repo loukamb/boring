@@ -55,6 +55,8 @@ launches `xeyes` once on startup, and binds:
 
 On macOS, use the development VM instead; see [`dev/README.md`](/dev/README.md).
 
+Saving the configuration file reloads it (plugins are remounted, keyboards reconfigured); a config with errors is refused and the running one stays. Pass `--watch=false` to turn that off.
+
 To download the compositor, clone the repository, then use `switch.lua` to launch the compositor program:
 
 ```bash

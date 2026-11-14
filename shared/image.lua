@@ -79,31 +79,33 @@ int vips_text(VipsImage **out, const char *text, ...);
 void g_object_unref(void *object);
 void g_free(void *mem);
 ]]
--- Try multiple library names for vips
+-- libvips is optional: without it, image wallpapers and title text are off.
 local vips
-local vips_names = { "vips", "libvips.so.42", "libvips.so" }
-for _, name in ipairs(vips_names) do
+for _, name in ipairs({ "libvips.so.42", "vips", "libvips.so" }) do
     local ok, lib = pcall(ffi.load, name)
     if ok then
         vips = lib
         break
     end
 end
-assert(vips, "Could not load libvips (tried: " .. table.concat(vips_names, ", ") .. ")")
 
-local glib = ffi.load("libglib-2.0.so.0")
-local gobject = ffi.load("libgobject-2.0.so.0")
+local glib = vips and ffi.load("libglib-2.0.so.0")
+local gobject = vips and ffi.load("libgobject-2.0.so.0")
 
 local image = {}
 
+--- Is libvips installed?
+image.available = vips ~= nil
+
 ---@class Image
 ---@field _img ffi.cdata* libvips VipsImage pointer
+-- Image methods; copied onto each image (plain table, no metatable).
 local Image = {}
-Image.__index = Image
 
 local initialized = false
 
 local function ensure_init()
+    assert(vips, "libvips isn't installed")
     if not initialized then
         assert(vips.vips_init("lwc") == 0, "Failed to initialize libvips: " .. ffi.string(vips.vips_error_buffer()))
         initialized = true
@@ -124,7 +126,9 @@ local function wrap_image(vips_image)
         vips.vips_error_clear()
         assert(false, "Failed to create image: " .. err)
     end
-    return setmetatable({ _img = vips_image }, Image)
+    local img = { _img = vips_image }
+    for name, fn in pairs(Image) do img[name] = fn end
+    return img
 end
 
 ---Load an image from a file path
