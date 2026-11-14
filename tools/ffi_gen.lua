@@ -140,6 +140,21 @@ local bindings = {
         root_symbols = {},
     },
     {
+        -- D-Bus client libraries (shared/dbus): sd-bus (libsystemd, and the
+        -- same API in libelogind and libbasu) and libdbus. Declarations
+        -- only; shared/dbus loads whichever is installed.
+        name = "dbus",
+        packages = { "libsystemd", "dbus-1" },
+        defines = {},
+        protocols = { side = "client", list = {} },
+        headers = { "<systemd/sd-bus.h>", "<dbus/dbus.h>" },
+        root_files = { "/systemd/sd%-bus", "/dbus%-1%.0/dbus/", "/dbus%-arch%-deps%.h$" },
+        root_symbols = {},
+        -- sd_bus_vtable has a 56-bit bitfield and its flags enum a 64-bit
+        -- value; boring registers objects with sd_bus_add_object instead.
+        skip = { "struct:sd_bus_vtable", "id:_SD_BUS_VTABLE_CAPABILITY_MASK" },
+    },
+    {
         -- The libc functions boring calls. Only arch-independent types: e.g.
         -- statx rather than stat, whose layout differs between architectures.
         name = "libc",
@@ -320,10 +335,21 @@ local function select_decls(binding, decls)
         end
     end
 
+    -- Declarations LuaJIT can't take (e.g. 64-bit bitfields) and the
+    -- binding doesn't need: pointers to a skipped struct stay incomplete.
+    local skip = {}
+    for _, key in ipairs(binding.skip or {}) do skip[key] = true end
+    local function skipped(d)
+        for key in pairs(d.defines) do
+            if skip[key] then return true end
+        end
+        return false
+    end
+
     local wanted = {}
     local queue = {}
     local function want(i)
-        if i and not wanted[i] then
+        if i and not wanted[i] and not skipped(decls[i]) then
             wanted[i] = true
             queue[#queue + 1] = i
         end

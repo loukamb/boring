@@ -11,6 +11,10 @@ local monitor = monitor.new({
 -- initialize the screenshot picker.
 local screenshot = plugin("@boring/screenshot"):mount()
 
+-- Notifications from applications (over D-Bus), stacked in the
+-- top-right corner.
+local notifications = plugin("@boring/notifications"):mount()
+
 -- The launcher: a search field for applications, windows and
 -- arithmetic. Super+Space opens it.
 local launcher = plugin("@boring/launcher"):mount({
@@ -36,6 +40,8 @@ input.keyboard.new({
         ["Mod4+Shift+q"] = actions.exit,
         ["Mod4+c"] = actions.reload,
         ["Mod4+space"] = launcher.actions.toggle,
+        ["Mod4+n"] = notifications.actions.dismiss_all,
+        ["Mod4+Shift+n"] = notifications.actions.toggle_dnd,
 
         -- Screenshot-related binds.
         ["PrintScreen"] = screenshot.actions.area,

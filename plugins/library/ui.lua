@@ -274,8 +274,11 @@ measure = function(w, theme, available)
     if kind == "text" then
         if w.text == "" then return 0, 0 end
         local max = w.max_width or available
+        -- Wrap where the first (top-down) measure decided: drawing measures
+        -- again with the narrower box the text got, which would wrap more.
+        if w._wrap == nil and w.wrap then w._wrap = math.min(w.wrap, max) end
         local width, height = text.measure(w.wrap and w.text or text.fit(w.text, text_font(w, theme), max),
-            { font = text_font(w, theme), wrap = w.wrap and math.min(w.wrap, max) or nil })
+            { font = text_font(w, theme), wrap = w._wrap })
         return width or 0, height or 0
     elseif kind == "image" then
         local size = w.size or theme.icon_size
@@ -325,7 +328,7 @@ draw = function(w, ctx, x, y, width, height)
     local kind, theme, tree = w.kind, ctx.theme, ctx.tree
     if kind == "text" then
         local node = text.draw(tree, w.text, { font = text_font(w, theme), color = text_color(w, theme),
-            max_width = w.max_width or width, wrap = w.wrap and math.min(w.wrap, width) or nil })
+            max_width = w.max_width or width, wrap = w._wrap or (w.wrap and math.min(w.wrap, width)) or nil })
         if node then node.node:set_position(math.floor(x), math.floor(y)) end
     elseif kind == "image" then
         local size = w.size or theme.icon_size

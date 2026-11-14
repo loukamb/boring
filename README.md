@@ -23,13 +23,14 @@ A set of default plugins are included that provides basic window management and 
 - [`layout-stacking`](/plugins/layout-stacking.lua): Traditional stacking layout
 - [`layout-tiling`](/plugins/layout-tiling.lua): Sway-inspired n-ary tiling layout
 - [`layout-kiosk`](/plugins/layout-kiosk.lua): Runs a single, maximized window
+- [`notifications`](/plugins/notifications.lua): Notification cards stacked in a corner, from applications over D-Bus (through the installed sd-bus or libdbus), with actions, do not disturb and history
 - [`rules`](/plugins/rules.lua): Window rules as Lua functions returning properties (floating, size, workspace, …)
 - [`workspaces`](/plugins/workspaces.lua): Several workspaces per output, shown to panels over `ext-workspace`
 - [`screenshot`](/plugins/screenshot.lua): Screenshots of an area, a window or an output, with blur, pen, box and arrow tools; saved as PNG and copied, with no external tools
 - [`wallpaper`](/plugins/wallpaper.lua): Wallpaper plugin
 - [`xwayland`](/plugins/xwayland.lua): XWayland integration
 
-The [default configuration](/default.lua) automatically mounts `animations`, `borders`, `ipc`, `launcher`, `layout-stacking`, `screenshot`, `wallpaper`, and `xwayland`. The documentation for each plugin can be found in their respective files.
+The [default configuration](/default.lua) automatically mounts `animations`, `borders`, `ipc`, `launcher`, `layout-stacking`, `notifications`, `screenshot`, `wallpaper`, and `xwayland`. The documentation for each plugin can be found in their respective files.
 
 ## Usage
 

@@ -8,16 +8,24 @@
 --   libinput 1.31.3
 --   pixman-1 0.46.2
 --   wayland-client 1.26.0
+--   libsystemd 259
+--   dbus-1 1.16.2
 --   wayland-protocols 1.50
 
 local ffi = require("ffi")
 
 ffi.cdef [[
+typedef unsigned long int __uint64_t;
 typedef unsigned int __uid_t;
+typedef unsigned int __gid_t;
 typedef long int __off_t;
+typedef long int __off64_t;
 typedef int __pid_t;
 typedef long int __time_t;
 typedef long int __syscall_slong_t;
+typedef __gid_t gid_t;
+typedef __uid_t uid_t;
+typedef __pid_t pid_t;
 struct timespec {
     __time_t tv_sec;
     __syscall_slong_t tv_nsec;
@@ -404,6 +412,45 @@ enum wl_subsurface_error {
 enum wl_fixes_error {
     WL_FIXES_ERROR_INVALID_ACK_REMOVE = 0,
 };
+typedef struct _IO_FILE FILE;
+struct _IO_marker;
+struct _IO_codecvt;
+struct _IO_wide_data;
+typedef void _IO_lock_t;
+struct _IO_FILE {
+    int _flags;
+    char *_IO_read_ptr;
+    char *_IO_read_end;
+    char *_IO_read_base;
+    char *_IO_write_base;
+    char *_IO_write_ptr;
+    char *_IO_write_end;
+    char *_IO_buf_base;
+    char *_IO_buf_end;
+    char *_IO_save_base;
+    char *_IO_backup_base;
+    char *_IO_save_end;
+    struct _IO_marker *_markers;
+    struct _IO_FILE *_chain;
+    int _fileno;
+    int _flags2 : 24;
+    char _short_backupbuf[1];
+    __off_t _old_offset;
+    unsigned short _cur_column;
+    signed char _vtable_offset;
+    char _shortbuf[1];
+    _IO_lock_t *_lock;
+    __off64_t _offset;
+    struct _IO_codecvt *_codecvt;
+    struct _IO_wide_data *_wide_data;
+    struct _IO_FILE *_freeres_list;
+    void *_freeres_buf;
+    struct _IO_FILE **_prevchain;
+    int _mode;
+    int _unused3;
+    __uint64_t _total_written;
+    char _unused2[12 *sizeof (int) - 5 *sizeof (void *)];
+};
 enum xdg_wm_base_error {
     XDG_WM_BASE_ERROR_ROLE = 0,
     XDG_WM_BASE_ERROR_DEFUNCT_SURFACES = 1,
@@ -542,7 +589,7 @@ extern const struct wl_interface xdg_popup_interface;
 
 return {
     structs = {
-        "timespec", "wl_array", "wl_interface", "wl_list",
-        "wl_message",
+        "_IO_FILE", "timespec", "wl_array", "wl_interface",
+        "wl_list", "wl_message",
     },
 }

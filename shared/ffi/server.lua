@@ -12,15 +12,9 @@ local ffi = require("ffi")
 require("shared.ffi.common")
 
 ffi.cdef [[
-typedef unsigned long int __uint64_t;
 typedef unsigned long int __dev_t;
-typedef unsigned int __gid_t;
-typedef long int __off64_t;
 typedef __dev_t dev_t;
-typedef __gid_t gid_t;
-typedef __uid_t uid_t;
 typedef __off_t off_t;
-typedef __pid_t pid_t;
 typedef __time_t time_t;
 enum {
     WL_EVENT_READABLE = 0x01,
@@ -1795,45 +1789,6 @@ struct wlr_input_device {
         struct wl_signal destroy;
     } events;
     void *data;
-};
-typedef struct _IO_FILE FILE;
-struct _IO_marker;
-struct _IO_codecvt;
-struct _IO_wide_data;
-typedef void _IO_lock_t;
-struct _IO_FILE {
-    int _flags;
-    char *_IO_read_ptr;
-    char *_IO_read_end;
-    char *_IO_read_base;
-    char *_IO_write_base;
-    char *_IO_write_ptr;
-    char *_IO_write_end;
-    char *_IO_buf_base;
-    char *_IO_buf_end;
-    char *_IO_save_base;
-    char *_IO_backup_base;
-    char *_IO_save_end;
-    struct _IO_marker *_markers;
-    struct _IO_FILE *_chain;
-    int _fileno;
-    int _flags2 : 24;
-    char _short_backupbuf[1];
-    __off_t _old_offset;
-    unsigned short _cur_column;
-    signed char _vtable_offset;
-    char _shortbuf[1];
-    _IO_lock_t *_lock;
-    __off64_t _offset;
-    struct _IO_codecvt *_codecvt;
-    struct _IO_wide_data *_wide_data;
-    struct _IO_FILE *_freeres_list;
-    void *_freeres_buf;
-    struct _IO_FILE **_prevchain;
-    int _mode;
-    int _unused3;
-    __uint64_t _total_written;
-    char _unused2[12 *sizeof (int) - 5 *sizeof (void *)];
 };
 struct xkb_context;
 struct xkb_keymap;
@@ -5274,89 +5229,89 @@ struct zwp_relative_pointer_v1_interface {
 
 return {
     structs = {
-        "_IO_FILE", "libinput_config_area_rectangle", "libinput_interface", "pixman_box32",
-        "pixman_region32", "pixman_region32_data", "wl_buffer_interface", "wl_compositor_interface",
-        "wl_data_device_interface", "wl_data_device_manager_interface", "wl_data_offer_interface", "wl_data_source_interface",
-        "wl_display_interface", "wl_fixes_interface", "wl_keyboard_interface", "wl_listener",
-        "wl_object", "wl_output_interface", "wl_pointer_interface", "wl_protocol_logger_message",
-        "wl_region_interface", "wl_registry_interface", "wl_resource", "wl_seat_interface",
-        "wl_shell_interface", "wl_shell_surface_interface", "wl_shm_interface", "wl_shm_pool_interface",
-        "wl_signal", "wl_subcompositor_interface", "wl_subsurface_interface", "wl_surface_interface",
-        "wl_touch_interface", "wlr_addon", "wlr_addon_interface", "wlr_addon_set",
-        "wlr_allocator", "wlr_allocator_interface", "wlr_alpha_modifier_surface_v1_state", "wlr_alpha_modifier_v1",
-        "wlr_backend", "wlr_backend_output_state", "wlr_box", "wlr_buffer",
-        "wlr_buffer_impl", "wlr_buffer_pass_options", "wlr_buffer_resource_interface", "wlr_client_buffer",
-        "wlr_color_cie1931_xy", "wlr_color_luminances", "wlr_color_primaries", "wlr_compositor",
-        "wlr_content_type_manager_v1", "wlr_cursor", "wlr_cursor_shape_manager_v1", "wlr_cursor_shape_manager_v1_request_set_shape_event",
-        "wlr_damage_ring", "wlr_damage_ring_buffer", "wlr_data_control_device_v1", "wlr_data_control_manager_v1",
-        "wlr_data_device_manager", "wlr_data_offer", "wlr_data_source", "wlr_data_source_impl",
-        "wlr_device", "wlr_device_change_event", "wlr_device_hotplug_event", "wlr_dmabuf_attributes",
-        "wlr_dmabuf_v1_buffer", "wlr_drag", "wlr_drag_drop_event", "wlr_drag_icon",
-        "wlr_drag_motion_event", "wlr_drm_format", "wlr_drm_format_set", "wlr_ext_data_control_device_v1",
-        "wlr_ext_data_control_manager_v1", "wlr_ext_foreign_toplevel_handle_v1", "wlr_ext_foreign_toplevel_handle_v1_state", "wlr_ext_foreign_toplevel_image_capture_source_manager_v1",
-        "wlr_ext_foreign_toplevel_image_capture_source_manager_v1_request", "wlr_ext_foreign_toplevel_list_v1", "wlr_ext_image_capture_source_v1", "wlr_ext_image_capture_source_v1_cursor",
-        "wlr_ext_image_capture_source_v1_frame_event", "wlr_ext_image_copy_capture_frame_v1", "wlr_ext_image_copy_capture_manager_v1", "wlr_ext_image_copy_capture_session_v1",
-        "wlr_ext_output_image_capture_source_manager_v1", "wlr_ext_workspace_group_handle_v1", "wlr_ext_workspace_handle_v1", "wlr_ext_workspace_manager_v1",
-        "wlr_ext_workspace_v1_commit_event", "wlr_ext_workspace_v1_request", "wlr_fbox", "wlr_foreign_toplevel_handle_v1",
-        "wlr_foreign_toplevel_handle_v1_activated_event", "wlr_foreign_toplevel_handle_v1_fullscreen_event", "wlr_foreign_toplevel_handle_v1_maximized_event", "wlr_foreign_toplevel_handle_v1_minimized_event",
-        "wlr_foreign_toplevel_handle_v1_output", "wlr_foreign_toplevel_handle_v1_set_rectangle_event", "wlr_foreign_toplevel_manager_v1", "wlr_fractional_scale_manager_v1",
-        "wlr_gamma_control_manager_v1", "wlr_gamma_control_manager_v1_set_gamma_event", "wlr_gamma_control_v1", "wlr_gles2_texture_attribs",
-        "wlr_idle_inhibit_manager_v1", "wlr_idle_inhibitor_v1", "wlr_idle_notifier_v1", "wlr_input_device",
-        "wlr_input_method_keyboard_grab_v2", "wlr_input_method_manager_v2", "wlr_input_method_v2", "wlr_input_method_v2_delete_surrounding_text",
-        "wlr_input_method_v2_preedit_string", "wlr_input_method_v2_state", "wlr_input_popup_surface_v2", "wlr_keyboard",
-        "wlr_keyboard_grab_interface", "wlr_keyboard_key_event", "wlr_keyboard_modifiers", "wlr_keyboard_shortcuts_inhibit_manager_v1",
-        "wlr_keyboard_shortcuts_inhibitor_v1", "wlr_layer_shell_v1", "wlr_layer_surface_v1", "wlr_layer_surface_v1_configure",
-        "wlr_layer_surface_v1_state", "wlr_linux_dmabuf_feedback_v1", "wlr_linux_dmabuf_feedback_v1_init_options", "wlr_linux_dmabuf_feedback_v1_tranche",
-        "wlr_linux_dmabuf_v1", "wlr_output", "wlr_output_configuration_head_v1", "wlr_output_configuration_v1",
-        "wlr_output_cursor", "wlr_output_cursor_size", "wlr_output_event_bind", "wlr_output_event_commit",
-        "wlr_output_event_damage", "wlr_output_event_precommit", "wlr_output_event_present", "wlr_output_event_request_state",
-        "wlr_output_head_v1", "wlr_output_head_v1_state", "wlr_output_image_description", "wlr_output_impl",
-        "wlr_output_layout", "wlr_output_layout_output", "wlr_output_manager_v1", "wlr_output_mode",
-        "wlr_output_power_manager_v1", "wlr_output_power_v1", "wlr_output_power_v1_set_mode_event", "wlr_output_state",
-        "wlr_pointer", "wlr_pointer_axis_event", "wlr_pointer_button_event", "wlr_pointer_constraint_v1",
-        "wlr_pointer_constraint_v1_state", "wlr_pointer_constraints_v1", "wlr_pointer_gestures_v1", "wlr_pointer_grab_interface",
-        "wlr_pointer_hold_begin_event", "wlr_pointer_hold_end_event", "wlr_pointer_impl", "wlr_pointer_motion_absolute_event",
-        "wlr_pointer_motion_event", "wlr_pointer_pinch_begin_event", "wlr_pointer_pinch_end_event", "wlr_pointer_pinch_update_event",
-        "wlr_pointer_swipe_begin_event", "wlr_pointer_swipe_end_event", "wlr_pointer_swipe_update_event", "wlr_presentation",
-        "wlr_presentation_event", "wlr_presentation_feedback", "wlr_primary_selection_source", "wlr_primary_selection_source_impl",
-        "wlr_primary_selection_v1_device", "wlr_primary_selection_v1_device_manager", "wlr_relative_pointer_manager_v1", "wlr_relative_pointer_v1",
-        "wlr_render_color", "wlr_render_rect_options", "wlr_render_texture_options", "wlr_renderer",
-        "wlr_scene", "wlr_scene_buffer", "wlr_scene_buffer_set_buffer_options", "wlr_scene_frame_done_event",
-        "wlr_scene_layer_surface_v1", "wlr_scene_node", "wlr_scene_output", "wlr_scene_output_sample_event",
-        "wlr_scene_output_state_options", "wlr_scene_outputs_update_event", "wlr_scene_rect", "wlr_scene_surface",
-        "wlr_scene_timer", "wlr_scene_tree", "wlr_screencopy_frame_v1", "wlr_screencopy_manager_v1",
-        "wlr_screencopy_v1_client", "wlr_seat", "wlr_seat_client", "wlr_seat_keyboard_focus_change_event",
-        "wlr_seat_keyboard_grab", "wlr_seat_keyboard_state", "wlr_seat_pointer_button", "wlr_seat_pointer_focus_change_event",
-        "wlr_seat_pointer_grab", "wlr_seat_pointer_request_set_cursor_event", "wlr_seat_pointer_state", "wlr_seat_request_set_primary_selection_event",
-        "wlr_seat_request_set_selection_event", "wlr_seat_request_start_drag_event", "wlr_seat_touch_grab", "wlr_seat_touch_state",
-        "wlr_serial_range", "wlr_serial_ringset", "wlr_session", "wlr_session_add_event",
-        "wlr_session_lock_manager_v1", "wlr_session_lock_surface_v1", "wlr_session_lock_surface_v1_configure", "wlr_session_lock_surface_v1_state",
-        "wlr_session_lock_v1", "wlr_shm_attributes", "wlr_single_pixel_buffer_manager_v1", "wlr_single_pixel_buffer_v1",
-        "wlr_subcompositor", "wlr_subsurface", "wlr_subsurface_parent_state", "wlr_surface",
-        "wlr_surface_output", "wlr_surface_role", "wlr_surface_state", "wlr_surface_synced",
-        "wlr_surface_synced_impl", "wlr_tearing_control_manager_v1", "wlr_tearing_control_v1", "wlr_text_input_manager_v3",
-        "wlr_text_input_v3", "wlr_text_input_v3_state", "wlr_texture", "wlr_texture_read_pixels_options",
-        "wlr_touch_grab_interface", "wlr_touch_point", "wlr_viewporter", "wlr_virtual_keyboard_manager_v1",
-        "wlr_virtual_keyboard_v1", "wlr_virtual_pointer_manager_v1", "wlr_virtual_pointer_v1", "wlr_virtual_pointer_v1_new_pointer_event",
-        "wlr_xcursor", "wlr_xcursor_image", "wlr_xcursor_manager", "wlr_xcursor_manager_theme",
-        "wlr_xcursor_theme", "wlr_xdg_activation_token_v1", "wlr_xdg_activation_v1", "wlr_xdg_activation_v1_request_activate_event",
-        "wlr_xdg_client", "wlr_xdg_decoration_manager_v1", "wlr_xdg_dialog_v1", "wlr_xdg_exported_v1",
-        "wlr_xdg_exported_v2", "wlr_xdg_foreign_exported", "wlr_xdg_foreign_registry", "wlr_xdg_foreign_v1",
-        "wlr_xdg_foreign_v2", "wlr_xdg_imported_child_v1", "wlr_xdg_imported_child_v2", "wlr_xdg_imported_v1",
-        "wlr_xdg_imported_v2", "wlr_xdg_output_manager_v1", "wlr_xdg_output_v1", "wlr_xdg_popup",
-        "wlr_xdg_popup_configure", "wlr_xdg_popup_grab", "wlr_xdg_popup_state", "wlr_xdg_positioner",
-        "wlr_xdg_positioner_rules", "wlr_xdg_shell", "wlr_xdg_surface", "wlr_xdg_surface_configure",
-        "wlr_xdg_surface_state", "wlr_xdg_system_bell_v1", "wlr_xdg_system_bell_v1_ring_event", "wlr_xdg_toplevel",
-        "wlr_xdg_toplevel_configure", "wlr_xdg_toplevel_decoration_v1", "wlr_xdg_toplevel_decoration_v1_configure", "wlr_xdg_toplevel_decoration_v1_state",
-        "wlr_xdg_toplevel_icon_manager_v1", "wlr_xdg_toplevel_icon_manager_v1_set_icon_event", "wlr_xdg_toplevel_icon_v1", "wlr_xdg_toplevel_icon_v1_buffer",
-        "wlr_xdg_toplevel_move_event", "wlr_xdg_toplevel_requested", "wlr_xdg_toplevel_resize_event", "wlr_xdg_toplevel_show_window_menu_event",
-        "wlr_xdg_toplevel_state", "wlr_xdg_wm_dialog_v1", "wlr_xwayland", "wlr_xwayland_minimize_event",
-        "wlr_xwayland_remove_startup_info_event", "wlr_xwayland_resize_event", "wlr_xwayland_server", "wlr_xwayland_server_options",
-        "wlr_xwayland_server_ready_event", "wlr_xwayland_surface", "wlr_xwayland_surface_configure_event", "wp_cursor_shape_device_v1_interface",
-        "wp_cursor_shape_manager_v1_interface", "xcb_get_property_reply_t", "xdg_popup_interface", "xdg_positioner_interface",
-        "xdg_surface_interface", "xdg_toplevel_interface", "xdg_wm_base_interface", "xkb_component_names",
-        "xkb_rule_names", "zwlr_layer_shell_v1_interface", "zwlr_layer_surface_v1_interface", "zwlr_output_power_manager_v1_interface",
-        "zwlr_output_power_v1_interface", "zwp_confined_pointer_v1_interface", "zwp_locked_pointer_v1_interface", "zwp_pointer_constraints_v1_interface",
-        "zwp_relative_pointer_manager_v1_interface", "zwp_relative_pointer_v1_interface", "zxdg_decoration_manager_v1_interface", "zxdg_toplevel_decoration_v1_interface",
+        "libinput_config_area_rectangle", "libinput_interface", "pixman_box32", "pixman_region32",
+        "pixman_region32_data", "wl_buffer_interface", "wl_compositor_interface", "wl_data_device_interface",
+        "wl_data_device_manager_interface", "wl_data_offer_interface", "wl_data_source_interface", "wl_display_interface",
+        "wl_fixes_interface", "wl_keyboard_interface", "wl_listener", "wl_object",
+        "wl_output_interface", "wl_pointer_interface", "wl_protocol_logger_message", "wl_region_interface",
+        "wl_registry_interface", "wl_resource", "wl_seat_interface", "wl_shell_interface",
+        "wl_shell_surface_interface", "wl_shm_interface", "wl_shm_pool_interface", "wl_signal",
+        "wl_subcompositor_interface", "wl_subsurface_interface", "wl_surface_interface", "wl_touch_interface",
+        "wlr_addon", "wlr_addon_interface", "wlr_addon_set", "wlr_allocator",
+        "wlr_allocator_interface", "wlr_alpha_modifier_surface_v1_state", "wlr_alpha_modifier_v1", "wlr_backend",
+        "wlr_backend_output_state", "wlr_box", "wlr_buffer", "wlr_buffer_impl",
+        "wlr_buffer_pass_options", "wlr_buffer_resource_interface", "wlr_client_buffer", "wlr_color_cie1931_xy",
+        "wlr_color_luminances", "wlr_color_primaries", "wlr_compositor", "wlr_content_type_manager_v1",
+        "wlr_cursor", "wlr_cursor_shape_manager_v1", "wlr_cursor_shape_manager_v1_request_set_shape_event", "wlr_damage_ring",
+        "wlr_damage_ring_buffer", "wlr_data_control_device_v1", "wlr_data_control_manager_v1", "wlr_data_device_manager",
+        "wlr_data_offer", "wlr_data_source", "wlr_data_source_impl", "wlr_device",
+        "wlr_device_change_event", "wlr_device_hotplug_event", "wlr_dmabuf_attributes", "wlr_dmabuf_v1_buffer",
+        "wlr_drag", "wlr_drag_drop_event", "wlr_drag_icon", "wlr_drag_motion_event",
+        "wlr_drm_format", "wlr_drm_format_set", "wlr_ext_data_control_device_v1", "wlr_ext_data_control_manager_v1",
+        "wlr_ext_foreign_toplevel_handle_v1", "wlr_ext_foreign_toplevel_handle_v1_state", "wlr_ext_foreign_toplevel_image_capture_source_manager_v1", "wlr_ext_foreign_toplevel_image_capture_source_manager_v1_request",
+        "wlr_ext_foreign_toplevel_list_v1", "wlr_ext_image_capture_source_v1", "wlr_ext_image_capture_source_v1_cursor", "wlr_ext_image_capture_source_v1_frame_event",
+        "wlr_ext_image_copy_capture_frame_v1", "wlr_ext_image_copy_capture_manager_v1", "wlr_ext_image_copy_capture_session_v1", "wlr_ext_output_image_capture_source_manager_v1",
+        "wlr_ext_workspace_group_handle_v1", "wlr_ext_workspace_handle_v1", "wlr_ext_workspace_manager_v1", "wlr_ext_workspace_v1_commit_event",
+        "wlr_ext_workspace_v1_request", "wlr_fbox", "wlr_foreign_toplevel_handle_v1", "wlr_foreign_toplevel_handle_v1_activated_event",
+        "wlr_foreign_toplevel_handle_v1_fullscreen_event", "wlr_foreign_toplevel_handle_v1_maximized_event", "wlr_foreign_toplevel_handle_v1_minimized_event", "wlr_foreign_toplevel_handle_v1_output",
+        "wlr_foreign_toplevel_handle_v1_set_rectangle_event", "wlr_foreign_toplevel_manager_v1", "wlr_fractional_scale_manager_v1", "wlr_gamma_control_manager_v1",
+        "wlr_gamma_control_manager_v1_set_gamma_event", "wlr_gamma_control_v1", "wlr_gles2_texture_attribs", "wlr_idle_inhibit_manager_v1",
+        "wlr_idle_inhibitor_v1", "wlr_idle_notifier_v1", "wlr_input_device", "wlr_input_method_keyboard_grab_v2",
+        "wlr_input_method_manager_v2", "wlr_input_method_v2", "wlr_input_method_v2_delete_surrounding_text", "wlr_input_method_v2_preedit_string",
+        "wlr_input_method_v2_state", "wlr_input_popup_surface_v2", "wlr_keyboard", "wlr_keyboard_grab_interface",
+        "wlr_keyboard_key_event", "wlr_keyboard_modifiers", "wlr_keyboard_shortcuts_inhibit_manager_v1", "wlr_keyboard_shortcuts_inhibitor_v1",
+        "wlr_layer_shell_v1", "wlr_layer_surface_v1", "wlr_layer_surface_v1_configure", "wlr_layer_surface_v1_state",
+        "wlr_linux_dmabuf_feedback_v1", "wlr_linux_dmabuf_feedback_v1_init_options", "wlr_linux_dmabuf_feedback_v1_tranche", "wlr_linux_dmabuf_v1",
+        "wlr_output", "wlr_output_configuration_head_v1", "wlr_output_configuration_v1", "wlr_output_cursor",
+        "wlr_output_cursor_size", "wlr_output_event_bind", "wlr_output_event_commit", "wlr_output_event_damage",
+        "wlr_output_event_precommit", "wlr_output_event_present", "wlr_output_event_request_state", "wlr_output_head_v1",
+        "wlr_output_head_v1_state", "wlr_output_image_description", "wlr_output_impl", "wlr_output_layout",
+        "wlr_output_layout_output", "wlr_output_manager_v1", "wlr_output_mode", "wlr_output_power_manager_v1",
+        "wlr_output_power_v1", "wlr_output_power_v1_set_mode_event", "wlr_output_state", "wlr_pointer",
+        "wlr_pointer_axis_event", "wlr_pointer_button_event", "wlr_pointer_constraint_v1", "wlr_pointer_constraint_v1_state",
+        "wlr_pointer_constraints_v1", "wlr_pointer_gestures_v1", "wlr_pointer_grab_interface", "wlr_pointer_hold_begin_event",
+        "wlr_pointer_hold_end_event", "wlr_pointer_impl", "wlr_pointer_motion_absolute_event", "wlr_pointer_motion_event",
+        "wlr_pointer_pinch_begin_event", "wlr_pointer_pinch_end_event", "wlr_pointer_pinch_update_event", "wlr_pointer_swipe_begin_event",
+        "wlr_pointer_swipe_end_event", "wlr_pointer_swipe_update_event", "wlr_presentation", "wlr_presentation_event",
+        "wlr_presentation_feedback", "wlr_primary_selection_source", "wlr_primary_selection_source_impl", "wlr_primary_selection_v1_device",
+        "wlr_primary_selection_v1_device_manager", "wlr_relative_pointer_manager_v1", "wlr_relative_pointer_v1", "wlr_render_color",
+        "wlr_render_rect_options", "wlr_render_texture_options", "wlr_renderer", "wlr_scene",
+        "wlr_scene_buffer", "wlr_scene_buffer_set_buffer_options", "wlr_scene_frame_done_event", "wlr_scene_layer_surface_v1",
+        "wlr_scene_node", "wlr_scene_output", "wlr_scene_output_sample_event", "wlr_scene_output_state_options",
+        "wlr_scene_outputs_update_event", "wlr_scene_rect", "wlr_scene_surface", "wlr_scene_timer",
+        "wlr_scene_tree", "wlr_screencopy_frame_v1", "wlr_screencopy_manager_v1", "wlr_screencopy_v1_client",
+        "wlr_seat", "wlr_seat_client", "wlr_seat_keyboard_focus_change_event", "wlr_seat_keyboard_grab",
+        "wlr_seat_keyboard_state", "wlr_seat_pointer_button", "wlr_seat_pointer_focus_change_event", "wlr_seat_pointer_grab",
+        "wlr_seat_pointer_request_set_cursor_event", "wlr_seat_pointer_state", "wlr_seat_request_set_primary_selection_event", "wlr_seat_request_set_selection_event",
+        "wlr_seat_request_start_drag_event", "wlr_seat_touch_grab", "wlr_seat_touch_state", "wlr_serial_range",
+        "wlr_serial_ringset", "wlr_session", "wlr_session_add_event", "wlr_session_lock_manager_v1",
+        "wlr_session_lock_surface_v1", "wlr_session_lock_surface_v1_configure", "wlr_session_lock_surface_v1_state", "wlr_session_lock_v1",
+        "wlr_shm_attributes", "wlr_single_pixel_buffer_manager_v1", "wlr_single_pixel_buffer_v1", "wlr_subcompositor",
+        "wlr_subsurface", "wlr_subsurface_parent_state", "wlr_surface", "wlr_surface_output",
+        "wlr_surface_role", "wlr_surface_state", "wlr_surface_synced", "wlr_surface_synced_impl",
+        "wlr_tearing_control_manager_v1", "wlr_tearing_control_v1", "wlr_text_input_manager_v3", "wlr_text_input_v3",
+        "wlr_text_input_v3_state", "wlr_texture", "wlr_texture_read_pixels_options", "wlr_touch_grab_interface",
+        "wlr_touch_point", "wlr_viewporter", "wlr_virtual_keyboard_manager_v1", "wlr_virtual_keyboard_v1",
+        "wlr_virtual_pointer_manager_v1", "wlr_virtual_pointer_v1", "wlr_virtual_pointer_v1_new_pointer_event", "wlr_xcursor",
+        "wlr_xcursor_image", "wlr_xcursor_manager", "wlr_xcursor_manager_theme", "wlr_xcursor_theme",
+        "wlr_xdg_activation_token_v1", "wlr_xdg_activation_v1", "wlr_xdg_activation_v1_request_activate_event", "wlr_xdg_client",
+        "wlr_xdg_decoration_manager_v1", "wlr_xdg_dialog_v1", "wlr_xdg_exported_v1", "wlr_xdg_exported_v2",
+        "wlr_xdg_foreign_exported", "wlr_xdg_foreign_registry", "wlr_xdg_foreign_v1", "wlr_xdg_foreign_v2",
+        "wlr_xdg_imported_child_v1", "wlr_xdg_imported_child_v2", "wlr_xdg_imported_v1", "wlr_xdg_imported_v2",
+        "wlr_xdg_output_manager_v1", "wlr_xdg_output_v1", "wlr_xdg_popup", "wlr_xdg_popup_configure",
+        "wlr_xdg_popup_grab", "wlr_xdg_popup_state", "wlr_xdg_positioner", "wlr_xdg_positioner_rules",
+        "wlr_xdg_shell", "wlr_xdg_surface", "wlr_xdg_surface_configure", "wlr_xdg_surface_state",
+        "wlr_xdg_system_bell_v1", "wlr_xdg_system_bell_v1_ring_event", "wlr_xdg_toplevel", "wlr_xdg_toplevel_configure",
+        "wlr_xdg_toplevel_decoration_v1", "wlr_xdg_toplevel_decoration_v1_configure", "wlr_xdg_toplevel_decoration_v1_state", "wlr_xdg_toplevel_icon_manager_v1",
+        "wlr_xdg_toplevel_icon_manager_v1_set_icon_event", "wlr_xdg_toplevel_icon_v1", "wlr_xdg_toplevel_icon_v1_buffer", "wlr_xdg_toplevel_move_event",
+        "wlr_xdg_toplevel_requested", "wlr_xdg_toplevel_resize_event", "wlr_xdg_toplevel_show_window_menu_event", "wlr_xdg_toplevel_state",
+        "wlr_xdg_wm_dialog_v1", "wlr_xwayland", "wlr_xwayland_minimize_event", "wlr_xwayland_remove_startup_info_event",
+        "wlr_xwayland_resize_event", "wlr_xwayland_server", "wlr_xwayland_server_options", "wlr_xwayland_server_ready_event",
+        "wlr_xwayland_surface", "wlr_xwayland_surface_configure_event", "wp_cursor_shape_device_v1_interface", "wp_cursor_shape_manager_v1_interface",
+        "xcb_get_property_reply_t", "xdg_popup_interface", "xdg_positioner_interface", "xdg_surface_interface",
+        "xdg_toplevel_interface", "xdg_wm_base_interface", "xkb_component_names", "xkb_rule_names",
+        "zwlr_layer_shell_v1_interface", "zwlr_layer_surface_v1_interface", "zwlr_output_power_manager_v1_interface", "zwlr_output_power_v1_interface",
+        "zwp_confined_pointer_v1_interface", "zwp_locked_pointer_v1_interface", "zwp_pointer_constraints_v1_interface", "zwp_relative_pointer_manager_v1_interface",
+        "zwp_relative_pointer_v1_interface", "zxdg_decoration_manager_v1_interface", "zxdg_toplevel_decoration_v1_interface",
     },
 }

@@ -245,7 +245,7 @@ a smoke test in the VM display.
     and draw (pen, rectangle, arrow); save as PNG through libvips; copy
     through a clipboard data source implemented in Lua. No grim, slurp or
     wl-copy.
-14. **Notifications.** Cards stacked in a corner (icon, title, body,
+14. ~~**Notifications.**~~ Done. Cards stacked in a corner (icon, title, body,
     actions), sliding in through `library/animate`; expiry, click, do not
     disturb, history over `ipc`. Implements `org.freedesktop.Notifications`
     over the installed D-Bus client library (`shared/dbus`, below). Without
