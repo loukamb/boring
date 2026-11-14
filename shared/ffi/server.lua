@@ -3762,6 +3762,964 @@ struct wlr_relative_pointer_v1 {
 struct wlr_relative_pointer_manager_v1 *wlr_relative_pointer_manager_v1_create(struct wl_display *display);
 void wlr_relative_pointer_manager_v1_send_relative_motion(struct wlr_relative_pointer_manager_v1 *manager, struct wlr_seat *seat, uint64_t time_usec, double dx, double dy, double dx_unaccel, double dy_unaccel);
 struct wlr_relative_pointer_v1 *wlr_relative_pointer_v1_from_resource(struct wl_resource *resource);
+struct wlr_primary_selection_source_impl {
+    void (*send)(struct wlr_primary_selection_source *source, const char *mime_type, int fd);
+    void (*destroy)(struct wlr_primary_selection_source *source);
+};
+struct wlr_primary_selection_source {
+    const struct wlr_primary_selection_source_impl *impl;
+    struct wl_array mime_types;
+    struct {
+        struct wl_signal destroy;
+    } events;
+    void *data;
+};
+void wlr_primary_selection_source_init(struct wlr_primary_selection_source *source, const struct wlr_primary_selection_source_impl *impl);
+void wlr_primary_selection_source_destroy(struct wlr_primary_selection_source *source);
+void wlr_primary_selection_source_send(struct wlr_primary_selection_source *source, const char *mime_type, int fd);
+void wlr_seat_request_set_primary_selection(struct wlr_seat *seat, struct wlr_seat_client *client, struct wlr_primary_selection_source *source, uint32_t serial);
+void wlr_seat_set_primary_selection(struct wlr_seat *seat, struct wlr_primary_selection_source *source, uint32_t serial);
+struct wlr_primary_selection_v1_device_manager {
+    struct wl_global *global;
+    struct wl_list devices;
+    struct {
+        struct wl_signal destroy;
+    } events;
+    void *data;
+    struct {
+        struct wl_listener display_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_primary_selection_v1_device {
+    struct wlr_primary_selection_v1_device_manager *manager;
+    struct wlr_seat *seat;
+    struct wl_list link;
+    struct wl_list resources;
+    struct wl_list offers;
+    void *data;
+    struct {
+        struct wl_listener seat_destroy;
+        struct wl_listener seat_focus_change;
+        struct wl_listener seat_set_primary_selection;
+    } WLR_PRIVATE;
+};
+struct wlr_primary_selection_v1_device_manager *wlr_primary_selection_v1_device_manager_create(struct wl_display *display);
+struct wlr_virtual_keyboard_manager_v1 {
+    struct wl_global *global;
+    struct wl_list virtual_keyboards;
+    struct {
+        struct wl_signal new_virtual_keyboard;
+        struct wl_signal destroy;
+    } events;
+    struct {
+        struct wl_listener display_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_virtual_keyboard_v1 {
+    struct wlr_keyboard keyboard;
+    struct wl_resource *resource;
+    struct wlr_seat *seat;
+    bool has_keymap;
+    struct wl_list link;
+    struct {
+        struct wl_listener seat_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_virtual_keyboard_manager_v1 *wlr_virtual_keyboard_manager_v1_create(struct wl_display *display);
+struct wlr_virtual_keyboard_v1 *wlr_virtual_keyboard_v1_from_resource(struct wl_resource *resource);
+struct wlr_virtual_keyboard_v1 *wlr_input_device_get_virtual_keyboard(struct wlr_input_device *wlr_dev);
+struct wlr_pointer_impl {
+    const char *name;
+};
+void wlr_pointer_init(struct wlr_pointer *pointer, const struct wlr_pointer_impl *impl, const char *name);
+void wlr_pointer_finish(struct wlr_pointer *pointer);
+void wlr_pointer_notify_button(struct wlr_pointer *pointer, struct wlr_pointer_button_event *event);
+struct wlr_output_cursor_size {
+    int width, height;
+};
+struct wlr_output_impl {
+    bool(*set_cursor)(struct wlr_output *output, struct wlr_buffer *buffer, int hotspot_x, int hotspot_y);
+    bool(*move_cursor)(struct wlr_output *output, int x, int y);
+    void (*destroy)(struct wlr_output *output);
+    bool(*test)(struct wlr_output *output, const struct wlr_output_state *state);
+    bool(*commit)(struct wlr_output *output, const struct wlr_output_state *state);
+    size_t(*get_gamma_size)(struct wlr_output *output);
+    const struct wlr_drm_format_set *(*get_cursor_formats)(struct wlr_output *output, uint32_t buffer_caps);
+    const struct wlr_output_cursor_size *(*get_cursor_sizes)(struct wlr_output *output, size_t *len);
+    const struct wlr_drm_format_set *(*get_primary_formats)(struct wlr_output *output, uint32_t buffer_caps);
+};
+void wlr_output_init(struct wlr_output *output, struct wlr_backend *backend, const struct wlr_output_impl *impl, struct wl_event_loop *event_loop, const struct wlr_output_state *state);
+void wlr_output_finish(struct wlr_output *output);
+void wlr_output_update_needs_frame(struct wlr_output *output);
+void wlr_output_send_frame(struct wlr_output *output);
+void wlr_output_send_present(struct wlr_output *output, struct wlr_output_event_present *event);
+void wlr_output_send_request_state(struct wlr_output *output, const struct wlr_output_state *state);
+struct wlr_virtual_pointer_manager_v1 {
+    struct wl_global *global;
+    struct wl_list virtual_pointers;
+    struct {
+        struct wl_signal new_virtual_pointer;
+        struct wl_signal destroy;
+    } events;
+    struct {
+        struct wl_listener display_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_virtual_pointer_v1 {
+    struct wlr_pointer pointer;
+    struct wl_resource *resource;
+    struct wlr_pointer_axis_event axis_event[2];
+    enum wl_pointer_axis axis;
+    bool axis_valid[2];
+    struct wl_list link;
+};
+struct wlr_virtual_pointer_v1_new_pointer_event {
+    struct wlr_virtual_pointer_v1 *new_pointer;
+    struct wlr_seat *suggested_seat;
+    struct wlr_output *suggested_output;
+};
+struct wlr_virtual_pointer_manager_v1 *wlr_virtual_pointer_manager_v1_create(struct wl_display *display);
+struct wlr_session_lock_manager_v1 {
+    struct wl_global *global;
+    struct {
+        struct wl_signal new_lock;
+        struct wl_signal destroy;
+    } events;
+    void *data;
+    struct {
+        struct wl_listener display_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_session_lock_v1 {
+    struct wl_resource *resource;
+    struct wl_list surfaces;
+    struct {
+        struct wl_signal new_surface;
+        struct wl_signal unlock;
+        struct wl_signal destroy;
+    } events;
+    void *data;
+    struct {
+        bool locked_sent;
+    } WLR_PRIVATE;
+};
+struct wlr_session_lock_surface_v1_state {
+    uint32_t width, height;
+    uint32_t configure_serial;
+};
+struct wlr_session_lock_surface_v1_configure {
+    struct wl_list link;
+    uint32_t serial;
+    uint32_t width, height;
+};
+struct wlr_session_lock_surface_v1 {
+    struct wl_resource *resource;
+    struct wl_list link;
+    struct wlr_output *output;
+    struct wlr_surface *surface;
+    bool configured;
+    struct wl_list configure_list;
+    struct wlr_session_lock_surface_v1_state current;
+    struct wlr_session_lock_surface_v1_state pending;
+    struct {
+        struct wl_signal destroy;
+    } events;
+    void *data;
+    struct {
+        struct wlr_surface_synced synced;
+        struct wl_listener output_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_session_lock_manager_v1 *wlr_session_lock_manager_v1_create(struct wl_display *display);
+void wlr_session_lock_v1_send_locked(struct wlr_session_lock_v1 *lock);
+void wlr_session_lock_v1_destroy(struct wlr_session_lock_v1 *lock);
+uint32_t wlr_session_lock_surface_v1_configure(struct wlr_session_lock_surface_v1 *lock_surface, uint32_t width, uint32_t height);
+struct wlr_session_lock_surface_v1 *wlr_session_lock_surface_v1_try_from_wlr_surface(struct wlr_surface *surface);
+enum wlr_text_input_v3_features {
+    WLR_TEXT_INPUT_V3_FEATURE_SURROUNDING_TEXT = 1 << 0,
+    WLR_TEXT_INPUT_V3_FEATURE_CONTENT_TYPE = 1 << 1,
+    WLR_TEXT_INPUT_V3_FEATURE_CURSOR_RECTANGLE = 1 << 2,
+};
+struct wlr_text_input_v3_state {
+    struct {
+        char *text;
+        uint32_t cursor;
+        uint32_t anchor;
+    } surrounding;
+    uint32_t text_change_cause;
+    struct {
+        uint32_t hint;
+        uint32_t purpose;
+    } content_type;
+    struct wlr_box cursor_rectangle;
+    uint32_t features;
+};
+struct wlr_text_input_v3 {
+    struct wlr_seat *seat;
+    struct wl_resource *resource;
+    struct wlr_surface *focused_surface;
+    struct wlr_text_input_v3_state pending;
+    struct wlr_text_input_v3_state current;
+    uint32_t current_serial;
+    bool pending_enabled;
+    bool current_enabled;
+    uint32_t active_features;
+    struct wl_list link;
+    struct {
+        struct wl_signal enable;
+        struct wl_signal commit;
+        struct wl_signal disable;
+        struct wl_signal destroy;
+    } events;
+    struct {
+        struct wl_listener surface_destroy;
+        struct wl_listener seat_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_text_input_manager_v3 {
+    struct wl_global *global;
+    struct wl_list text_inputs;
+    struct {
+        struct wl_signal new_text_input;
+        struct wl_signal destroy;
+    } events;
+    struct {
+        struct wl_listener display_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_text_input_manager_v3 *wlr_text_input_manager_v3_create(struct wl_display *wl_display);
+void wlr_text_input_v3_send_enter(struct wlr_text_input_v3 *text_input, struct wlr_surface *wlr_surface);
+void wlr_text_input_v3_send_leave(struct wlr_text_input_v3 *text_input);
+void wlr_text_input_v3_send_preedit_string(struct wlr_text_input_v3 *text_input, const char *text, int32_t cursor_begin, int32_t cursor_end);
+void wlr_text_input_v3_send_commit_string(struct wlr_text_input_v3 *text_input, const char *text);
+void wlr_text_input_v3_send_delete_surrounding_text(struct wlr_text_input_v3 *text_input, uint32_t before_length, uint32_t after_length);
+void wlr_text_input_v3_send_done(struct wlr_text_input_v3 *text_input);
+struct wlr_input_method_v2_preedit_string {
+    char *text;
+    int32_t cursor_begin;
+    int32_t cursor_end;
+};
+struct wlr_input_method_v2_delete_surrounding_text {
+    uint32_t before_length;
+    uint32_t after_length;
+};
+struct wlr_input_method_v2_state {
+    struct wlr_input_method_v2_preedit_string preedit;
+    char *commit_text;
+    struct wlr_input_method_v2_delete_surrounding_text delete;
+};
+struct wlr_input_method_v2 {
+    struct wl_resource *resource;
+    struct wlr_seat *seat;
+    struct wlr_seat_client *seat_client;
+    struct wlr_input_method_v2_state pending;
+    struct wlr_input_method_v2_state current;
+    bool active;
+    bool client_active;
+    uint32_t current_serial;
+    struct wl_list popup_surfaces;
+    struct wlr_input_method_keyboard_grab_v2 *keyboard_grab;
+    struct wl_list link;
+    struct {
+        struct wl_signal commit;
+        struct wl_signal new_popup_surface;
+        struct wl_signal grab_keyboard;
+        struct wl_signal destroy;
+    } events;
+    struct {
+        struct wl_listener seat_client_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_input_popup_surface_v2 {
+    struct wl_resource *resource;
+    struct wlr_input_method_v2 *input_method;
+    struct wl_list link;
+    struct wlr_surface *surface;
+    struct {
+        struct wl_signal destroy;
+    } events;
+    void *data;
+};
+struct wlr_input_method_keyboard_grab_v2 {
+    struct wl_resource *resource;
+    struct wlr_input_method_v2 *input_method;
+    struct wlr_keyboard *keyboard;
+    struct {
+        struct wl_signal destroy;
+    } events;
+    struct {
+        struct wl_listener keyboard_keymap;
+        struct wl_listener keyboard_repeat_info;
+        struct wl_listener keyboard_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_input_method_manager_v2 {
+    struct wl_global *global;
+    struct wl_list input_methods;
+    struct {
+        struct wl_signal new_input_method;
+        struct wl_signal destroy;
+    } events;
+    struct {
+        struct wl_listener display_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_input_method_manager_v2 *wlr_input_method_manager_v2_create(struct wl_display *display);
+void wlr_input_method_v2_send_activate(struct wlr_input_method_v2 *input_method);
+void wlr_input_method_v2_send_deactivate(struct wlr_input_method_v2 *input_method);
+void wlr_input_method_v2_send_surrounding_text(struct wlr_input_method_v2 *input_method, const char *text, uint32_t cursor, uint32_t anchor);
+void wlr_input_method_v2_send_content_type(struct wlr_input_method_v2 *input_method, uint32_t hint, uint32_t purpose);
+void wlr_input_method_v2_send_text_change_cause(struct wlr_input_method_v2 *input_method, uint32_t cause);
+void wlr_input_method_v2_send_done(struct wlr_input_method_v2 *input_method);
+void wlr_input_method_v2_send_unavailable(struct wlr_input_method_v2 *input_method);
+struct wlr_input_popup_surface_v2 *wlr_input_popup_surface_v2_try_from_wlr_surface(struct wlr_surface *surface);
+void wlr_input_popup_surface_v2_send_text_input_rectangle(struct wlr_input_popup_surface_v2 *popup_surface, struct wlr_box *sbox);
+void wlr_input_method_keyboard_grab_v2_send_key(struct wlr_input_method_keyboard_grab_v2 *keyboard_grab, uint32_t time, uint32_t key, uint32_t state);
+void wlr_input_method_keyboard_grab_v2_send_modifiers(struct wlr_input_method_keyboard_grab_v2 *keyboard_grab, struct wlr_keyboard_modifiers *modifiers);
+void wlr_input_method_keyboard_grab_v2_set_keyboard(struct wlr_input_method_keyboard_grab_v2 *keyboard_grab, struct wlr_keyboard *keyboard);
+void wlr_input_method_keyboard_grab_v2_destroy(struct wlr_input_method_keyboard_grab_v2 *keyboard_grab);
+struct wlr_ext_image_capture_source_v1 {
+    const struct wlr_ext_image_capture_source_v1_interface *impl;
+    struct wl_list resources;
+    uint32_t width, height;
+    uint32_t *shm_formats;
+    size_t shm_formats_len;
+    dev_t dmabuf_device;
+    struct wlr_drm_format_set dmabuf_formats;
+    struct {
+        struct wl_signal constraints_update;
+        struct wl_signal frame;
+        struct wl_signal destroy;
+    } events;
+};
+struct wlr_ext_image_capture_source_v1_frame_event {
+    const pixman_region32_t *damage;
+};
+struct wlr_ext_image_capture_source_v1_cursor {
+    struct wlr_ext_image_capture_source_v1 base;
+    bool entered;
+    int32_t x, y;
+    struct {
+        int32_t x, y;
+    } hotspot;
+    struct {
+        struct wl_signal update;
+    } events;
+};
+struct wlr_ext_output_image_capture_source_manager_v1 {
+    struct wl_global *global;
+    struct {
+        struct wl_listener display_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_ext_foreign_toplevel_image_capture_source_manager_v1 {
+    struct wl_global *global;
+    struct {
+        struct wl_signal destroy;
+        struct wl_signal new_request;
+    } events;
+    struct {
+        struct wl_listener display_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_ext_foreign_toplevel_image_capture_source_manager_v1_request {
+    struct wlr_ext_foreign_toplevel_handle_v1 *toplevel_handle;
+    struct wl_client *client;
+    struct {
+        uint32_t new_id;
+    } WLR_PRIVATE;
+};
+struct wlr_ext_image_capture_source_v1 *wlr_ext_image_capture_source_v1_from_resource(struct wl_resource *resource);
+struct wlr_ext_output_image_capture_source_manager_v1 *wlr_ext_output_image_capture_source_manager_v1_create(struct wl_display *display, uint32_t version);
+struct wlr_ext_foreign_toplevel_image_capture_source_manager_v1 *wlr_ext_foreign_toplevel_image_capture_source_manager_v1_create(struct wl_display *display, uint32_t version);
+bool wlr_ext_foreign_toplevel_image_capture_source_manager_v1_request_accept(struct wlr_ext_foreign_toplevel_image_capture_source_manager_v1_request *request, struct wlr_ext_image_capture_source_v1 *source);
+struct wlr_ext_image_capture_source_v1 *wlr_ext_image_capture_source_v1_create_with_scene_node(struct wlr_scene_node *node, struct wl_event_loop *event_loop, struct wlr_allocator *allocator, struct wlr_renderer *renderer);
+struct wlr_output *wlr_output_try_from_ext_image_capture_source_v1(struct wlr_ext_image_capture_source_v1 *source);
+enum ext_image_copy_capture_frame_v1_failure_reason {
+    EXT_IMAGE_COPY_CAPTURE_FRAME_V1_FAILURE_REASON_UNKNOWN = 0,
+    EXT_IMAGE_COPY_CAPTURE_FRAME_V1_FAILURE_REASON_BUFFER_CONSTRAINTS = 1,
+    EXT_IMAGE_COPY_CAPTURE_FRAME_V1_FAILURE_REASON_STOPPED = 2,
+};
+struct wlr_ext_image_copy_capture_manager_v1 {
+    struct wl_global *global;
+    struct {
+        struct wl_signal new_session;
+    } events;
+    struct {
+        struct wl_listener display_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_ext_image_copy_capture_session_v1 {
+    struct wl_resource *resource;
+    struct wlr_ext_image_capture_source_v1 *source;
+    struct wlr_ext_image_copy_capture_frame_v1 *frame;
+    struct {
+        struct wl_signal destroy;
+    } events;
+    struct {
+        struct wl_listener source_destroy;
+        struct wl_listener source_constraints_update;
+        struct wl_listener source_frame;
+        pixman_region32_t damage;
+    } WLR_PRIVATE;
+};
+struct wlr_ext_image_copy_capture_frame_v1 {
+    struct wl_resource *resource;
+    bool capturing;
+    struct wlr_buffer *buffer;
+    pixman_region32_t buffer_damage;
+    struct {
+        struct wl_signal destroy;
+    } events;
+    struct {
+        struct wlr_ext_image_copy_capture_session_v1 *session;
+    } WLR_PRIVATE;
+};
+struct wlr_ext_image_copy_capture_manager_v1 *wlr_ext_image_copy_capture_manager_v1_create(struct wl_display *display, uint32_t version);
+void wlr_ext_image_copy_capture_frame_v1_ready(struct wlr_ext_image_copy_capture_frame_v1 *frame, enum wl_output_transform transform, const struct timespec *presentation_time);
+void wlr_ext_image_copy_capture_frame_v1_fail(struct wlr_ext_image_copy_capture_frame_v1 *frame, enum ext_image_copy_capture_frame_v1_failure_reason reason);
+bool wlr_ext_image_copy_capture_frame_v1_copy_buffer(struct wlr_ext_image_copy_capture_frame_v1 *frame, struct wlr_buffer *src, struct wlr_renderer *renderer);
+struct wlr_xdg_toplevel_icon_manager_v1 {
+    struct wl_global *global;
+    struct wl_list resources;
+    int *sizes;
+    size_t n_sizes;
+    struct {
+        struct wl_signal set_icon;
+        struct wl_signal destroy;
+    } events;
+    struct {
+        struct wl_listener display_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_xdg_toplevel_icon_manager_v1_set_icon_event {
+    struct wlr_xdg_toplevel *toplevel;
+    struct wlr_xdg_toplevel_icon_v1 *icon;
+};
+struct wlr_xdg_toplevel_icon_v1_buffer {
+    struct wlr_buffer *buffer;
+    int scale;
+    struct wl_list link;
+};
+struct wlr_xdg_toplevel_icon_v1 {
+    char *name;
+    struct wl_list buffers;
+    struct {
+        int n_refs;
+        bool immutable;
+    } WLR_PRIVATE;
+};
+struct wlr_xdg_toplevel_icon_manager_v1 *wlr_xdg_toplevel_icon_manager_v1_create(struct wl_display *display, uint32_t version);
+void wlr_xdg_toplevel_icon_manager_v1_set_sizes(struct wlr_xdg_toplevel_icon_manager_v1 *manager, int *sizes, size_t n_sizes);
+struct wlr_xdg_toplevel_icon_v1 *wlr_xdg_toplevel_icon_v1_ref(struct wlr_xdg_toplevel_icon_v1 *icon);
+void wlr_xdg_toplevel_icon_v1_unref(struct wlr_xdg_toplevel_icon_v1 *icon);
+struct wlr_xdg_dialog_v1 {
+    struct wl_resource *resource;
+    struct wlr_xdg_toplevel *xdg_toplevel;
+    bool modal;
+    struct {
+        struct wl_signal destroy;
+        struct wl_signal set_modal;
+    } events;
+    struct {
+        struct wlr_addon surface_addon;
+        struct wl_listener xdg_toplevel_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_xdg_wm_dialog_v1 {
+    struct wl_global *global;
+    struct {
+        struct wl_signal destroy;
+        struct wl_signal new_dialog;
+    } events;
+    struct {
+        struct wl_listener display_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_xdg_wm_dialog_v1 *wlr_xdg_wm_dialog_v1_create(struct wl_display *display, uint32_t version);
+struct wlr_xdg_dialog_v1 *wlr_xdg_dialog_v1_try_from_wlr_xdg_toplevel(struct wlr_xdg_toplevel *xdg_toplevel);
+struct wlr_presentation {
+    struct wl_global *global;
+    struct {
+        struct wl_signal destroy;
+    } events;
+    struct {
+        struct wl_listener display_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_presentation_feedback {
+    struct wl_list resources;
+    struct wlr_output *output;
+    bool output_committed;
+    uint32_t output_commit_seq;
+    bool zero_copy;
+    struct {
+        struct wl_listener output_commit;
+        struct wl_listener output_present;
+        struct wl_listener output_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_presentation_event {
+    struct wlr_output *output;
+    uint64_t tv_sec;
+    uint32_t tv_nsec;
+    uint32_t refresh;
+    uint64_t seq;
+    uint32_t flags;
+};
+struct wlr_presentation *wlr_presentation_create(struct wl_display *display, struct wlr_backend *backend, uint32_t version);
+struct wlr_presentation_feedback *wlr_presentation_surface_sampled(struct wlr_surface *surface);
+void wlr_presentation_feedback_send_presented(struct wlr_presentation_feedback *feedback, const struct wlr_presentation_event *event);
+void wlr_presentation_feedback_destroy(struct wlr_presentation_feedback *feedback);
+void wlr_presentation_event_from_output(struct wlr_presentation_event *event, const struct wlr_output_event_present *output_event);
+void wlr_presentation_surface_textured_on_output(struct wlr_surface *surface, struct wlr_output *output);
+void wlr_presentation_surface_scanned_out_on_output(struct wlr_surface *surface, struct wlr_output *output);
+struct wlr_idle_notifier_v1 {
+    struct wl_global *global;
+    struct {
+        bool inhibited;
+        struct wl_list notifications;
+        struct wl_listener display_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_idle_notifier_v1 *wlr_idle_notifier_v1_create(struct wl_display *display);
+void wlr_idle_notifier_v1_set_inhibited(struct wlr_idle_notifier_v1 *notifier, bool inhibited);
+void wlr_idle_notifier_v1_notify_activity(struct wlr_idle_notifier_v1 *notifier, struct wlr_seat *seat);
+struct wlr_ext_foreign_toplevel_list_v1 {
+    struct wl_global *global;
+    struct wl_list resources;
+    struct wl_list toplevels;
+    struct {
+        struct wl_signal destroy;
+    } events;
+    void *data;
+    struct {
+        struct wl_listener display_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_ext_foreign_toplevel_handle_v1 {
+    struct wlr_ext_foreign_toplevel_list_v1 *list;
+    struct wl_list resources;
+    struct wl_list link;
+    char *title;
+    char *app_id;
+    char *identifier;
+    struct {
+        struct wl_signal destroy;
+    } events;
+    void *data;
+};
+struct wlr_ext_foreign_toplevel_handle_v1_state {
+    const char *title;
+    const char *app_id;
+};
+struct wlr_ext_foreign_toplevel_list_v1 *wlr_ext_foreign_toplevel_list_v1_create(struct wl_display *display, uint32_t version);
+struct wlr_ext_foreign_toplevel_handle_v1 *wlr_ext_foreign_toplevel_handle_v1_create(struct wlr_ext_foreign_toplevel_list_v1 *list, const struct wlr_ext_foreign_toplevel_handle_v1_state *state);
+void wlr_ext_foreign_toplevel_handle_v1_destroy(struct wlr_ext_foreign_toplevel_handle_v1 *toplevel);
+void wlr_ext_foreign_toplevel_handle_v1_update_state(struct wlr_ext_foreign_toplevel_handle_v1 *toplevel, const struct wlr_ext_foreign_toplevel_handle_v1_state *state);
+struct wlr_ext_foreign_toplevel_handle_v1 *wlr_ext_foreign_toplevel_handle_v1_from_resource(struct wl_resource *resource);
+struct wlr_alpha_modifier_surface_v1_state {
+    double multiplier;
+};
+struct wlr_alpha_modifier_v1 {
+    struct wl_global *global;
+    struct {
+        struct wl_listener display_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_alpha_modifier_v1 *wlr_alpha_modifier_v1_create(struct wl_display *display);
+const struct wlr_alpha_modifier_surface_v1_state *wlr_alpha_modifier_v1_get_surface_state(struct wlr_surface *surface);
+enum wp_content_type_v1_type {
+    WP_CONTENT_TYPE_V1_TYPE_NONE = 0,
+    WP_CONTENT_TYPE_V1_TYPE_PHOTO = 1,
+    WP_CONTENT_TYPE_V1_TYPE_VIDEO = 2,
+    WP_CONTENT_TYPE_V1_TYPE_GAME = 3,
+};
+struct wlr_content_type_manager_v1 {
+    struct wl_global *global;
+    struct {
+        struct wl_signal destroy;
+    } events;
+    void *data;
+    struct {
+        struct wl_listener display_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_content_type_manager_v1 *wlr_content_type_manager_v1_create(struct wl_display *display, uint32_t version);
+enum wp_content_type_v1_type wlr_surface_get_content_type_v1(struct wlr_content_type_manager_v1 *manager, struct wlr_surface *surface);
+struct wlr_keyboard_shortcuts_inhibit_manager_v1 {
+    struct wl_list inhibitors;
+    struct wl_global *global;
+    struct {
+        struct wl_signal new_inhibitor;
+        struct wl_signal destroy;
+    } events;
+    void *data;
+    struct {
+        struct wl_listener display_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_keyboard_shortcuts_inhibitor_v1 {
+    struct wlr_surface *surface;
+    struct wlr_seat *seat;
+    bool active;
+    struct wl_resource *resource;
+    struct wl_list link;
+    struct {
+        struct wl_signal destroy;
+    } events;
+    void *data;
+    struct {
+        struct wl_listener surface_destroy;
+        struct wl_listener seat_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_keyboard_shortcuts_inhibit_manager_v1 *wlr_keyboard_shortcuts_inhibit_v1_create(struct wl_display *display);
+void wlr_keyboard_shortcuts_inhibitor_v1_activate(struct wlr_keyboard_shortcuts_inhibitor_v1 *inhibitor);
+void wlr_keyboard_shortcuts_inhibitor_v1_deactivate(struct wlr_keyboard_shortcuts_inhibitor_v1 *inhibitor);
+struct zwlr_output_power_manager_v1;
+struct zwlr_output_power_v1;
+extern const struct wl_interface zwlr_output_power_manager_v1_interface;
+extern const struct wl_interface zwlr_output_power_v1_interface;
+struct zwlr_output_power_manager_v1_interface {
+    void (*get_output_power)(struct wl_client *client, struct wl_resource *resource, uint32_t id, struct wl_resource *output);
+    void (*destroy)(struct wl_client *client, struct wl_resource *resource);
+};
+enum zwlr_output_power_v1_mode {
+    ZWLR_OUTPUT_POWER_V1_MODE_OFF = 0,
+    ZWLR_OUTPUT_POWER_V1_MODE_ON = 1,
+};
+enum zwlr_output_power_v1_error {
+    ZWLR_OUTPUT_POWER_V1_ERROR_INVALID_MODE = 1,
+};
+struct zwlr_output_power_v1_interface {
+    void (*set_mode)(struct wl_client *client, struct wl_resource *resource, uint32_t mode);
+    void (*destroy)(struct wl_client *client, struct wl_resource *resource);
+};
+struct wlr_output_power_manager_v1 {
+    struct wl_global *global;
+    struct wl_list output_powers;
+    struct {
+        struct wl_signal set_mode;
+        struct wl_signal destroy;
+    } events;
+    void *data;
+    struct {
+        struct wl_listener display_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_output_power_v1 {
+    struct wl_resource *resource;
+    struct wlr_output *output;
+    struct wlr_output_power_manager_v1 *manager;
+    struct wl_list link;
+    void *data;
+    struct {
+        struct wl_listener output_destroy_listener;
+        struct wl_listener output_commit_listener;
+    } WLR_PRIVATE;
+};
+struct wlr_output_power_v1_set_mode_event {
+    struct wlr_output *output;
+    enum zwlr_output_power_v1_mode mode;
+};
+struct wlr_output_power_manager_v1 *wlr_output_power_manager_v1_create(struct wl_display *display);
+struct wlr_data_control_manager_v1 {
+    struct wl_global *global;
+    struct wl_list devices;
+    struct {
+        struct wl_signal destroy;
+        struct wl_signal new_device;
+    } events;
+    struct {
+        struct wl_listener display_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_data_control_device_v1 {
+    struct wl_resource *resource;
+    struct wlr_data_control_manager_v1 *manager;
+    struct wl_list link;
+    struct wlr_seat *seat;
+    struct wl_resource *selection_offer_resource;
+    struct wl_resource *primary_selection_offer_resource;
+    struct {
+        struct wl_listener seat_destroy;
+        struct wl_listener seat_set_selection;
+        struct wl_listener seat_set_primary_selection;
+    } WLR_PRIVATE;
+};
+struct wlr_data_control_manager_v1 *wlr_data_control_manager_v1_create(struct wl_display *display);
+void wlr_data_control_device_v1_destroy(struct wlr_data_control_device_v1 *device);
+struct wlr_ext_data_control_manager_v1 {
+    struct wl_global *global;
+    struct wl_list devices;
+    struct {
+        struct wl_signal destroy;
+        struct wl_signal new_device;
+    } events;
+    struct {
+        struct wl_listener display_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_ext_data_control_device_v1 {
+    struct wl_resource *resource;
+    struct wlr_ext_data_control_manager_v1 *manager;
+    struct wl_list link;
+    struct wlr_seat *seat;
+    struct wl_resource *selection_offer_resource;
+    struct wl_resource *primary_selection_offer_resource;
+    struct {
+        struct wl_listener seat_destroy;
+        struct wl_listener seat_set_selection;
+        struct wl_listener seat_set_primary_selection;
+    } WLR_PRIVATE;
+};
+struct wlr_ext_data_control_manager_v1 *wlr_ext_data_control_manager_v1_create(struct wl_display *display, uint32_t version);
+void wlr_ext_data_control_device_v1_destroy(struct wlr_ext_data_control_device_v1 *device);
+struct wlr_xdg_system_bell_v1 {
+    struct wl_global *global;
+    struct {
+        struct wl_signal destroy;
+        struct wl_signal ring;
+    } events;
+    struct {
+        struct wl_listener display_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_xdg_system_bell_v1_ring_event {
+    struct wl_client *client;
+    struct wlr_surface *surface;
+};
+struct wlr_xdg_system_bell_v1 *wlr_xdg_system_bell_v1_create(struct wl_display *display, uint32_t version);
+struct wlr_pointer_gestures_v1 {
+    struct wl_global *global;
+    struct wl_list swipes;
+    struct wl_list pinches;
+    struct wl_list holds;
+    struct {
+        struct wl_signal destroy;
+    } events;
+    void *data;
+    struct {
+        struct wl_listener display_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_pointer_gestures_v1 *wlr_pointer_gestures_v1_create(struct wl_display *display);
+void wlr_pointer_gestures_v1_send_swipe_begin(struct wlr_pointer_gestures_v1 *gestures, struct wlr_seat *seat, uint32_t time_msec, uint32_t fingers);
+void wlr_pointer_gestures_v1_send_swipe_update(struct wlr_pointer_gestures_v1 *gestures, struct wlr_seat *seat, uint32_t time_msec, double dx, double dy);
+void wlr_pointer_gestures_v1_send_swipe_end(struct wlr_pointer_gestures_v1 *gestures, struct wlr_seat *seat, uint32_t time_msec, bool cancelled);
+void wlr_pointer_gestures_v1_send_pinch_begin(struct wlr_pointer_gestures_v1 *gestures, struct wlr_seat *seat, uint32_t time_msec, uint32_t fingers);
+void wlr_pointer_gestures_v1_send_pinch_update(struct wlr_pointer_gestures_v1 *gestures, struct wlr_seat *seat, uint32_t time_msec, double dx, double dy, double scale, double rotation);
+void wlr_pointer_gestures_v1_send_pinch_end(struct wlr_pointer_gestures_v1 *gestures, struct wlr_seat *seat, uint32_t time_msec, bool cancelled);
+void wlr_pointer_gestures_v1_send_hold_begin(struct wlr_pointer_gestures_v1 *gestures, struct wlr_seat *seat, uint32_t time_msec, uint32_t fingers);
+void wlr_pointer_gestures_v1_send_hold_end(struct wlr_pointer_gestures_v1 *gestures, struct wlr_seat *seat, uint32_t time_msec, bool cancelled);
+enum wp_tearing_control_v1_presentation_hint {
+    WP_TEARING_CONTROL_V1_PRESENTATION_HINT_VSYNC = 0,
+    WP_TEARING_CONTROL_V1_PRESENTATION_HINT_ASYNC = 1,
+};
+struct wlr_tearing_control_v1 {
+    struct wl_client *client;
+    struct wl_list link;
+    struct wl_resource *resource;
+    enum wp_tearing_control_v1_presentation_hint current, pending;
+    struct {
+        struct wl_signal set_hint;
+        struct wl_signal destroy;
+    } events;
+    struct wlr_surface *surface;
+    struct {
+        enum wp_tearing_control_v1_presentation_hint previous;
+        struct wlr_addon addon;
+        struct wlr_surface_synced synced;
+        struct wl_listener surface_commit;
+    } WLR_PRIVATE;
+};
+struct wlr_tearing_control_manager_v1 {
+    struct wl_global *global;
+    struct wl_list surface_hints;
+    struct {
+        struct wl_signal new_object;
+        struct wl_signal destroy;
+    } events;
+    void *data;
+    struct {
+        struct wl_listener display_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_tearing_control_manager_v1 *wlr_tearing_control_manager_v1_create(struct wl_display *display, uint32_t version);
+enum wp_tearing_control_v1_presentation_hint wlr_tearing_control_manager_v1_surface_hint_from_surface(struct wlr_tearing_control_manager_v1 *manager, struct wlr_surface *surface);
+struct wlr_output_manager_v1 {
+    struct wl_display *display;
+    struct wl_global *global;
+    struct wl_list resources;
+    struct wl_list heads;
+    uint32_t serial;
+    bool current_configuration_dirty;
+    struct {
+        struct wl_signal apply;
+        struct wl_signal test;
+        struct wl_signal destroy;
+    } events;
+    void *data;
+    struct {
+        struct wl_listener display_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_output_head_v1_state {
+    struct wlr_output *output;
+    bool enabled;
+    struct wlr_output_mode *mode;
+    struct {
+        int32_t width, height;
+        int32_t refresh;
+    } custom_mode;
+    int32_t x, y;
+    enum wl_output_transform transform;
+    float scale;
+    bool adaptive_sync_enabled;
+};
+struct wlr_output_head_v1 {
+    struct wlr_output_head_v1_state state;
+    struct wlr_output_manager_v1 *manager;
+    struct wl_list link;
+    struct wl_list resources;
+    struct wl_list mode_resources;
+    struct {
+        struct wl_listener output_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_output_configuration_v1 {
+    struct wl_list heads;
+    struct wlr_output_manager_v1 *manager;
+    uint32_t serial;
+    bool finalized;
+    bool finished;
+    struct wl_resource *resource;
+};
+struct wlr_output_configuration_head_v1 {
+    struct wlr_output_head_v1_state state;
+    struct wlr_output_configuration_v1 *config;
+    struct wl_list link;
+    struct wl_resource *resource;
+    struct {
+        struct wl_listener output_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_output_manager_v1 *wlr_output_manager_v1_create(struct wl_display *display);
+void wlr_output_manager_v1_set_configuration(struct wlr_output_manager_v1 *manager, struct wlr_output_configuration_v1 *config);
+struct wlr_output_configuration_v1 *wlr_output_configuration_v1_create(void);
+void wlr_output_configuration_v1_destroy(struct wlr_output_configuration_v1 *config);
+void wlr_output_configuration_v1_send_succeeded(struct wlr_output_configuration_v1 *config);
+void wlr_output_configuration_v1_send_failed(struct wlr_output_configuration_v1 *config);
+struct wlr_output_configuration_head_v1 *wlr_output_configuration_head_v1_create(struct wlr_output_configuration_v1 *config, struct wlr_output *output);
+void wlr_output_head_v1_state_apply(const struct wlr_output_head_v1_state *head_state, struct wlr_output_state *output_state);
+struct wlr_backend_output_state *wlr_output_configuration_v1_build_state(const struct wlr_output_configuration_v1 *config, size_t *states_len);
+struct wlr_xdg_foreign_registry {
+    struct wl_list exported_surfaces;
+    struct {
+        struct wl_signal destroy;
+    } events;
+    struct {
+        struct wl_listener display_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_xdg_foreign_exported {
+    struct wl_list link;
+    struct wlr_xdg_foreign_registry *registry;
+    struct wlr_xdg_toplevel *toplevel;
+    char handle[37];
+    struct {
+        struct wl_signal destroy;
+    } events;
+};
+struct wlr_xdg_foreign_registry *wlr_xdg_foreign_registry_create(struct wl_display *display);
+bool wlr_xdg_foreign_exported_init(struct wlr_xdg_foreign_exported *surface, struct wlr_xdg_foreign_registry *registry);
+struct wlr_xdg_foreign_exported *wlr_xdg_foreign_registry_find_by_handle(struct wlr_xdg_foreign_registry *registry, const char *handle);
+void wlr_xdg_foreign_exported_finish(struct wlr_xdg_foreign_exported *surface);
+struct wlr_xdg_foreign_v1 {
+    struct {
+        struct wl_global *global;
+        struct wl_list objects;
+    } exporter, importer;
+    struct wlr_xdg_foreign_registry *registry;
+    struct {
+        struct wl_signal destroy;
+    } events;
+    void *data;
+    struct {
+        struct wl_listener foreign_registry_destroy;
+        struct wl_listener display_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_xdg_exported_v1 {
+    struct wlr_xdg_foreign_exported base;
+    struct wl_resource *resource;
+    struct wl_list link;
+    struct {
+        struct wl_listener xdg_toplevel_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_xdg_imported_v1 {
+    struct wlr_xdg_foreign_exported *exported;
+    struct wl_resource *resource;
+    struct wl_list link;
+    struct wl_list children;
+    struct {
+        struct wl_listener exported_destroyed;
+    } WLR_PRIVATE;
+};
+struct wlr_xdg_imported_child_v1 {
+    struct wlr_xdg_imported_v1 *imported;
+    struct wlr_xdg_toplevel *toplevel;
+    struct wl_list link;
+    struct {
+        struct wl_listener xdg_toplevel_destroy;
+        struct wl_listener xdg_toplevel_set_parent;
+    } WLR_PRIVATE;
+};
+struct wlr_xdg_foreign_v1 *wlr_xdg_foreign_v1_create(struct wl_display *display, struct wlr_xdg_foreign_registry *registry);
+struct wlr_xdg_foreign_v2 {
+    struct {
+        struct wl_global *global;
+        struct wl_list objects;
+    } exporter, importer;
+    struct wlr_xdg_foreign_registry *registry;
+    struct {
+        struct wl_signal destroy;
+    } events;
+    void *data;
+    struct {
+        struct wl_listener foreign_registry_destroy;
+        struct wl_listener display_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_xdg_exported_v2 {
+    struct wlr_xdg_foreign_exported base;
+    struct wl_resource *resource;
+    struct wl_list link;
+    struct {
+        struct wl_listener xdg_toplevel_destroy;
+    } WLR_PRIVATE;
+};
+struct wlr_xdg_imported_v2 {
+    struct wlr_xdg_foreign_exported *exported;
+    struct wl_resource *resource;
+    struct wl_list link;
+    struct wl_list children;
+    struct {
+        struct wl_listener exported_destroyed;
+    } WLR_PRIVATE;
+};
+struct wlr_xdg_imported_child_v2 {
+    struct wlr_xdg_imported_v2 *imported;
+    struct wlr_xdg_toplevel *toplevel;
+    struct wl_list link;
+    struct {
+        struct wl_listener xdg_toplevel_destroy;
+        struct wl_listener xdg_toplevel_set_parent;
+    } WLR_PRIVATE;
+};
+struct wlr_xdg_foreign_v2 *wlr_xdg_foreign_v2_create(struct wl_display *display, struct wlr_xdg_foreign_registry *registry);
 struct wlr_xwayland_server_options {
     bool lazy;
     bool enable_wm;
@@ -4185,3 +5143,91 @@ struct zwp_relative_pointer_v1_interface {
     void (*destroy)(struct wl_client *client, struct wl_resource *resource);
 };
 ]]
+
+return {
+    structs = {
+        "_IO_FILE", "libinput_config_area_rectangle", "libinput_interface", "pixman_box32",
+        "pixman_region32", "pixman_region32_data", "wl_buffer_interface", "wl_compositor_interface",
+        "wl_data_device_interface", "wl_data_device_manager_interface", "wl_data_offer_interface", "wl_data_source_interface",
+        "wl_display_interface", "wl_fixes_interface", "wl_keyboard_interface", "wl_listener",
+        "wl_object", "wl_output_interface", "wl_pointer_interface", "wl_protocol_logger_message",
+        "wl_region_interface", "wl_registry_interface", "wl_resource", "wl_seat_interface",
+        "wl_shell_interface", "wl_shell_surface_interface", "wl_shm_interface", "wl_shm_pool_interface",
+        "wl_signal", "wl_subcompositor_interface", "wl_subsurface_interface", "wl_surface_interface",
+        "wl_touch_interface", "wlr_addon", "wlr_addon_interface", "wlr_addon_set",
+        "wlr_allocator", "wlr_allocator_interface", "wlr_alpha_modifier_surface_v1_state", "wlr_alpha_modifier_v1",
+        "wlr_backend", "wlr_backend_output_state", "wlr_box", "wlr_buffer",
+        "wlr_buffer_impl", "wlr_buffer_pass_options", "wlr_buffer_resource_interface", "wlr_client_buffer",
+        "wlr_color_cie1931_xy", "wlr_color_luminances", "wlr_color_primaries", "wlr_compositor",
+        "wlr_content_type_manager_v1", "wlr_cursor", "wlr_cursor_shape_manager_v1", "wlr_cursor_shape_manager_v1_request_set_shape_event",
+        "wlr_damage_ring", "wlr_damage_ring_buffer", "wlr_data_control_device_v1", "wlr_data_control_manager_v1",
+        "wlr_data_device_manager", "wlr_data_offer", "wlr_data_source", "wlr_data_source_impl",
+        "wlr_device", "wlr_device_change_event", "wlr_device_hotplug_event", "wlr_dmabuf_attributes",
+        "wlr_dmabuf_v1_buffer", "wlr_drag", "wlr_drag_drop_event", "wlr_drag_icon",
+        "wlr_drag_motion_event", "wlr_drm_format", "wlr_drm_format_set", "wlr_ext_data_control_device_v1",
+        "wlr_ext_data_control_manager_v1", "wlr_ext_foreign_toplevel_handle_v1", "wlr_ext_foreign_toplevel_handle_v1_state", "wlr_ext_foreign_toplevel_image_capture_source_manager_v1",
+        "wlr_ext_foreign_toplevel_image_capture_source_manager_v1_request", "wlr_ext_foreign_toplevel_list_v1", "wlr_ext_image_capture_source_v1", "wlr_ext_image_capture_source_v1_cursor",
+        "wlr_ext_image_capture_source_v1_frame_event", "wlr_ext_image_copy_capture_frame_v1", "wlr_ext_image_copy_capture_manager_v1", "wlr_ext_image_copy_capture_session_v1",
+        "wlr_ext_output_image_capture_source_manager_v1", "wlr_fbox", "wlr_foreign_toplevel_handle_v1", "wlr_foreign_toplevel_handle_v1_activated_event",
+        "wlr_foreign_toplevel_handle_v1_fullscreen_event", "wlr_foreign_toplevel_handle_v1_maximized_event", "wlr_foreign_toplevel_handle_v1_minimized_event", "wlr_foreign_toplevel_handle_v1_output",
+        "wlr_foreign_toplevel_handle_v1_set_rectangle_event", "wlr_foreign_toplevel_manager_v1", "wlr_fractional_scale_manager_v1", "wlr_gamma_control_manager_v1",
+        "wlr_gamma_control_manager_v1_set_gamma_event", "wlr_gamma_control_v1", "wlr_gles2_texture_attribs", "wlr_idle_inhibit_manager_v1",
+        "wlr_idle_inhibitor_v1", "wlr_idle_notifier_v1", "wlr_input_device", "wlr_input_method_keyboard_grab_v2",
+        "wlr_input_method_manager_v2", "wlr_input_method_v2", "wlr_input_method_v2_delete_surrounding_text", "wlr_input_method_v2_preedit_string",
+        "wlr_input_method_v2_state", "wlr_input_popup_surface_v2", "wlr_keyboard", "wlr_keyboard_grab_interface",
+        "wlr_keyboard_key_event", "wlr_keyboard_modifiers", "wlr_keyboard_shortcuts_inhibit_manager_v1", "wlr_keyboard_shortcuts_inhibitor_v1",
+        "wlr_layer_shell_v1", "wlr_layer_surface_v1", "wlr_layer_surface_v1_configure", "wlr_layer_surface_v1_state",
+        "wlr_linux_dmabuf_feedback_v1", "wlr_linux_dmabuf_feedback_v1_init_options", "wlr_linux_dmabuf_feedback_v1_tranche", "wlr_linux_dmabuf_v1",
+        "wlr_output", "wlr_output_configuration_head_v1", "wlr_output_configuration_v1", "wlr_output_cursor",
+        "wlr_output_cursor_size", "wlr_output_event_bind", "wlr_output_event_commit", "wlr_output_event_damage",
+        "wlr_output_event_precommit", "wlr_output_event_present", "wlr_output_event_request_state", "wlr_output_head_v1",
+        "wlr_output_head_v1_state", "wlr_output_image_description", "wlr_output_impl", "wlr_output_layout",
+        "wlr_output_layout_output", "wlr_output_manager_v1", "wlr_output_mode", "wlr_output_power_manager_v1",
+        "wlr_output_power_v1", "wlr_output_power_v1_set_mode_event", "wlr_output_state", "wlr_pointer",
+        "wlr_pointer_axis_event", "wlr_pointer_button_event", "wlr_pointer_constraint_v1", "wlr_pointer_constraint_v1_state",
+        "wlr_pointer_constraints_v1", "wlr_pointer_gestures_v1", "wlr_pointer_grab_interface", "wlr_pointer_hold_begin_event",
+        "wlr_pointer_hold_end_event", "wlr_pointer_impl", "wlr_pointer_motion_absolute_event", "wlr_pointer_motion_event",
+        "wlr_pointer_pinch_begin_event", "wlr_pointer_pinch_end_event", "wlr_pointer_pinch_update_event", "wlr_pointer_swipe_begin_event",
+        "wlr_pointer_swipe_end_event", "wlr_pointer_swipe_update_event", "wlr_presentation", "wlr_presentation_event",
+        "wlr_presentation_feedback", "wlr_primary_selection_source", "wlr_primary_selection_source_impl", "wlr_primary_selection_v1_device",
+        "wlr_primary_selection_v1_device_manager", "wlr_relative_pointer_manager_v1", "wlr_relative_pointer_v1", "wlr_render_color",
+        "wlr_render_rect_options", "wlr_render_texture_options", "wlr_renderer", "wlr_scene",
+        "wlr_scene_buffer", "wlr_scene_buffer_set_buffer_options", "wlr_scene_frame_done_event", "wlr_scene_layer_surface_v1",
+        "wlr_scene_node", "wlr_scene_output", "wlr_scene_output_sample_event", "wlr_scene_output_state_options",
+        "wlr_scene_outputs_update_event", "wlr_scene_rect", "wlr_scene_surface", "wlr_scene_timer",
+        "wlr_scene_tree", "wlr_screencopy_frame_v1", "wlr_screencopy_manager_v1", "wlr_screencopy_v1_client",
+        "wlr_seat", "wlr_seat_client", "wlr_seat_keyboard_focus_change_event", "wlr_seat_keyboard_grab",
+        "wlr_seat_keyboard_state", "wlr_seat_pointer_button", "wlr_seat_pointer_focus_change_event", "wlr_seat_pointer_grab",
+        "wlr_seat_pointer_request_set_cursor_event", "wlr_seat_pointer_state", "wlr_seat_request_set_primary_selection_event", "wlr_seat_request_set_selection_event",
+        "wlr_seat_request_start_drag_event", "wlr_seat_touch_grab", "wlr_seat_touch_state", "wlr_serial_range",
+        "wlr_serial_ringset", "wlr_session", "wlr_session_add_event", "wlr_session_lock_manager_v1",
+        "wlr_session_lock_surface_v1", "wlr_session_lock_surface_v1_configure", "wlr_session_lock_surface_v1_state", "wlr_session_lock_v1",
+        "wlr_shm_attributes", "wlr_single_pixel_buffer_manager_v1", "wlr_single_pixel_buffer_v1", "wlr_subcompositor",
+        "wlr_subsurface", "wlr_subsurface_parent_state", "wlr_surface", "wlr_surface_output",
+        "wlr_surface_role", "wlr_surface_state", "wlr_surface_synced", "wlr_surface_synced_impl",
+        "wlr_tearing_control_manager_v1", "wlr_tearing_control_v1", "wlr_text_input_manager_v3", "wlr_text_input_v3",
+        "wlr_text_input_v3_state", "wlr_texture", "wlr_texture_read_pixels_options", "wlr_touch_grab_interface",
+        "wlr_touch_point", "wlr_viewporter", "wlr_virtual_keyboard_manager_v1", "wlr_virtual_keyboard_v1",
+        "wlr_virtual_pointer_manager_v1", "wlr_virtual_pointer_v1", "wlr_virtual_pointer_v1_new_pointer_event", "wlr_xcursor",
+        "wlr_xcursor_image", "wlr_xcursor_manager", "wlr_xcursor_manager_theme", "wlr_xcursor_theme",
+        "wlr_xdg_activation_token_v1", "wlr_xdg_activation_v1", "wlr_xdg_activation_v1_request_activate_event", "wlr_xdg_client",
+        "wlr_xdg_decoration_manager_v1", "wlr_xdg_dialog_v1", "wlr_xdg_exported_v1", "wlr_xdg_exported_v2",
+        "wlr_xdg_foreign_exported", "wlr_xdg_foreign_registry", "wlr_xdg_foreign_v1", "wlr_xdg_foreign_v2",
+        "wlr_xdg_imported_child_v1", "wlr_xdg_imported_child_v2", "wlr_xdg_imported_v1", "wlr_xdg_imported_v2",
+        "wlr_xdg_output_manager_v1", "wlr_xdg_output_v1", "wlr_xdg_popup", "wlr_xdg_popup_configure",
+        "wlr_xdg_popup_grab", "wlr_xdg_popup_state", "wlr_xdg_positioner", "wlr_xdg_positioner_rules",
+        "wlr_xdg_shell", "wlr_xdg_surface", "wlr_xdg_surface_configure", "wlr_xdg_surface_state",
+        "wlr_xdg_system_bell_v1", "wlr_xdg_system_bell_v1_ring_event", "wlr_xdg_toplevel", "wlr_xdg_toplevel_configure",
+        "wlr_xdg_toplevel_decoration_v1", "wlr_xdg_toplevel_decoration_v1_configure", "wlr_xdg_toplevel_decoration_v1_state", "wlr_xdg_toplevel_icon_manager_v1",
+        "wlr_xdg_toplevel_icon_manager_v1_set_icon_event", "wlr_xdg_toplevel_icon_v1", "wlr_xdg_toplevel_icon_v1_buffer", "wlr_xdg_toplevel_move_event",
+        "wlr_xdg_toplevel_requested", "wlr_xdg_toplevel_resize_event", "wlr_xdg_toplevel_show_window_menu_event", "wlr_xdg_toplevel_state",
+        "wlr_xdg_wm_dialog_v1", "wlr_xwayland", "wlr_xwayland_minimize_event", "wlr_xwayland_remove_startup_info_event",
+        "wlr_xwayland_resize_event", "wlr_xwayland_server", "wlr_xwayland_server_options", "wlr_xwayland_server_ready_event",
+        "wlr_xwayland_surface", "wlr_xwayland_surface_configure_event", "wp_cursor_shape_device_v1_interface", "wp_cursor_shape_manager_v1_interface",
+        "xcb_get_property_reply_t", "xdg_popup_interface", "xdg_positioner_interface", "xdg_surface_interface",
+        "xdg_toplevel_interface", "xdg_wm_base_interface", "xkb_component_names", "xkb_rule_names",
+        "zwlr_layer_shell_v1_interface", "zwlr_layer_surface_v1_interface", "zwlr_output_power_manager_v1_interface", "zwlr_output_power_v1_interface",
+        "zwp_confined_pointer_v1_interface", "zwp_locked_pointer_v1_interface", "zwp_pointer_constraints_v1_interface", "zwp_relative_pointer_manager_v1_interface",
+        "zwp_relative_pointer_v1_interface", "zxdg_decoration_manager_v1_interface", "zxdg_toplevel_decoration_v1_interface",
+    },
+}

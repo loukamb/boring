@@ -8,11 +8,12 @@ return function(t)
 
         local result = compositor.run({ timeout = "3s" })
 
-        if result.status == 1 and result.log:match("Failed to create backend") then
+        if result.status == 1 and result.log:match("failed to create backend") then
             t.skip("wlroots headless backend is unavailable")
         end
 
         t.eq(result.status, 124, result.log)
-        t.ok(not result.log:match("Fatal error"), result.log)
+        t.ok(not result.log:match("fatal:"), result.log)
+        t.ok(not result.log:match("err!"), result.log)
     end)
 end

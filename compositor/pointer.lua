@@ -107,6 +107,7 @@ end
 --------------------------------------------------------------------------------
 
 local function motion(server, time_msec)
+    server.on_activity()
     local grab = server.grab
     if grab then
         update_grab(server, grab)
@@ -173,6 +174,7 @@ local function is_double_click(click, x, y, button, time)
 end
 
 local function button(server, event)
+    server.on_activity()
     local seat = server.seat
     local cx, cy = server.cursor.x, server.cursor.y
 
@@ -223,6 +225,7 @@ local function button(server, event)
 end
 
 local function axis(server, event)
+    server.on_activity()
     if event.delta ~= 0 then
         local s = shortcuts.match_mouse(server.mouse_shortcuts, server.modifiers or 0, "scroll")
         if s and type(s.action) == "function" then
@@ -290,7 +293,43 @@ function pointer.setup(server)
         "struct wlr_pointer_axis_event")
     scope:listen(cursor.events.frame, function() server.seat:pointer_notify_frame() end)
 
-    return { "zwp_relative_pointer_manager_v1", "zwp_relative_pointer_v1" }
+    -- Touchpad gestures go to the client under the pointer.
+    local gestures = lib.wlr_pointer_gestures_v1_create(server.display)
+    local function gesture(signal, ctype, send)
+        scope:listen(signal, function(e)
+            server.on_activity()
+            send(e)
+        end, ctype)
+    end
+    local seat = function() return server.seat end
+    gesture(cursor.events.swipe_begin, "struct wlr_pointer_swipe_begin_event", function(e)
+        lib.wlr_pointer_gestures_v1_send_swipe_begin(gestures, seat(), e.time_msec, e.fingers)
+    end)
+    gesture(cursor.events.swipe_update, "struct wlr_pointer_swipe_update_event", function(e)
+        lib.wlr_pointer_gestures_v1_send_swipe_update(gestures, seat(), e.time_msec, e.dx, e.dy)
+    end)
+    gesture(cursor.events.swipe_end, "struct wlr_pointer_swipe_end_event", function(e)
+        lib.wlr_pointer_gestures_v1_send_swipe_end(gestures, seat(), e.time_msec, e.cancelled)
+    end)
+    gesture(cursor.events.pinch_begin, "struct wlr_pointer_pinch_begin_event", function(e)
+        lib.wlr_pointer_gestures_v1_send_pinch_begin(gestures, seat(), e.time_msec, e.fingers)
+    end)
+    gesture(cursor.events.pinch_update, "struct wlr_pointer_pinch_update_event", function(e)
+        lib.wlr_pointer_gestures_v1_send_pinch_update(gestures, seat(), e.time_msec, e.dx, e.dy, e.scale, e.rotation)
+    end)
+    gesture(cursor.events.pinch_end, "struct wlr_pointer_pinch_end_event", function(e)
+        lib.wlr_pointer_gestures_v1_send_pinch_end(gestures, seat(), e.time_msec, e.cancelled)
+    end)
+    gesture(cursor.events.hold_begin, "struct wlr_pointer_hold_begin_event", function(e)
+        lib.wlr_pointer_gestures_v1_send_hold_begin(gestures, seat(), e.time_msec, e.fingers)
+    end)
+    gesture(cursor.events.hold_end, "struct wlr_pointer_hold_end_event", function(e)
+        lib.wlr_pointer_gestures_v1_send_hold_end(gestures, seat(), e.time_msec, e.cancelled)
+    end)
+
+    return { "zwp_relative_pointer_manager_v1", "zwp_relative_pointer_v1",
+        "zwp_pointer_gestures_v1", "zwp_pointer_gesture_swipe_v1", "zwp_pointer_gesture_pinch_v1",
+        "zwp_pointer_gesture_hold_v1" }
 end
 
 pointer._private = {

@@ -35,6 +35,7 @@ local server_protocols = {
     { "wayland-protocols", "unstable/pointer-constraints/pointer-constraints-unstable-v1.xml" },
     { "wayland-protocols", "unstable/xdg-decoration/xdg-decoration-unstable-v1.xml" },
     { "wayland-protocols", "unstable/relative-pointer/relative-pointer-unstable-v1.xml" },
+    { "wlr-protocols", "unstable/wlr-output-power-management-unstable-v1.xml" },
 }
 
 local client_protocols = {
@@ -86,6 +87,34 @@ local bindings = {
             "<wlr/types/wlr_cursor_shape_v1.h>",
             "<wlr/types/wlr_pointer_constraints_v1.h>",
             "<wlr/types/wlr_relative_pointer_v1.h>",
+            "<wlr/types/wlr_primary_selection.h>",
+            "<wlr/types/wlr_primary_selection_v1.h>",
+            "<wlr/types/wlr_virtual_keyboard_v1.h>",
+            "<wlr/types/wlr_virtual_pointer_v1.h>",
+            "<wlr/types/wlr_session_lock_v1.h>",
+            "<wlr/types/wlr_text_input_v3.h>",
+            "<wlr/types/wlr_input_method_v2.h>",
+            "<wlr/types/wlr_ext_image_capture_source_v1.h>",
+            "<wlr/types/wlr_ext_image_copy_capture_v1.h>",
+            "<wlr/types/wlr_xdg_toplevel_icon_v1.h>",
+            "<wlr/types/wlr_xdg_dialog_v1.h>",
+            "<wlr/types/wlr_presentation_time.h>",
+            "<wlr/types/wlr_linux_dmabuf_v1.h>",
+            "<wlr/types/wlr_idle_notify_v1.h>",
+            "<wlr/types/wlr_ext_foreign_toplevel_list_v1.h>",
+            "<wlr/types/wlr_alpha_modifier_v1.h>",
+            "<wlr/types/wlr_content_type_v1.h>",
+            "<wlr/types/wlr_keyboard_shortcuts_inhibit_v1.h>",
+            "<wlr/types/wlr_output_power_management_v1.h>",
+            "<wlr/types/wlr_data_control_v1.h>",
+            "<wlr/types/wlr_ext_data_control_v1.h>",
+            "<wlr/types/wlr_xdg_system_bell_v1.h>",
+            "<wlr/types/wlr_pointer_gestures_v1.h>",
+            "<wlr/types/wlr_tearing_control_v1.h>",
+            "<wlr/types/wlr_output_management_v1.h>",
+            "<wlr/types/wlr_xdg_foreign_registry.h>",
+            "<wlr/types/wlr_xdg_foreign_v1.h>",
+            "<wlr/types/wlr_xdg_foreign_v2.h>",
             "<wlr/xwayland.h>",
             "<xkbcommon/xkbcommon.h>",
             "<libinput.h>",
@@ -358,15 +387,26 @@ local function header_comment(title, versions)
 end
 
 local function write_binding(path, comment, prelude, decls)
-    local body = {}
+    local body, structs = {}, {}
     for _, d in ipairs(decls) do
         body[#body + 1] = cdecl.format(d)
+        for key, how in pairs(d.defines) do
+            local name = key:match("^struct:(.+)$")
+            if name and how == "full" then structs[#structs + 1] = string.format("%q", name) end
+        end
     end
+    table.sort(structs)
     local f = assert(io.open(path, "w"))
     f:write(comment, "\n")
     f:write('local ffi = require("ffi")\n')
     if prelude then f:write(prelude, "\n") end
     f:write("\nffi.cdef [[\n", table.concat(body, "\n"), "\n]]\n")
+    -- The structs this file defines (shared/wl/types.lua gives them methods).
+    f:write("\nreturn {\n    structs = {\n")
+    for i = 1, #structs, 4 do
+        f:write("        ", table.concat(structs, ", ", i, math.min(i + 3, #structs)), ",\n")
+    end
+    f:write("    },\n}\n")
     f:close()
     print(string.format("wrote %s (%d declarations)", path, #decls))
 end

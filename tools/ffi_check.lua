@@ -36,6 +36,15 @@ local checks = {
     { "wlr_xwayland_surface", { "window_id", "surface", "title", "events", "data", "override_redirect", "x", "y" } },
     { "wlr_foreign_toplevel_handle_v1", { "events", "data" } },
     { "wlr_box", { "x", "y", "width", "height" } },
+    { "wlr_session_lock_v1", { "events" } },
+    { "wlr_session_lock_surface_v1", { "output", "surface", "events" } },
+    { "wlr_text_input_v3", { "resource", "focused_surface", "current", "events" } },
+    { "wlr_input_method_v2", { "current", "events" } },
+    { "wlr_virtual_pointer_v1_new_pointer_event", { "new_pointer", "suggested_output" } },
+    { "wlr_virtual_keyboard_v1", { "keyboard" } },
+    { "wlr_output_configuration_head_v1", { "state", "link" } },
+    { "wlr_keyboard_shortcuts_inhibitor_v1", { "surface", "active", "events" } },
+    { "wlr_pointer_pinch_update_event", { "dx", "dy", "scale", "rotation" } },
 }
 
 local headers = {
@@ -45,6 +54,10 @@ local headers = {
     "wlr/types/wlr_compositor.h", "wlr/types/wlr_xdg_shell.h", "wlr/types/wlr_xdg_decoration_v1.h",
     "wlr/types/wlr_layer_shell_v1.h", "wlr/xwayland.h",
     "wlr/types/wlr_foreign_toplevel_management_v1.h",
+    "wlr/types/wlr_session_lock_v1.h", "wlr/types/wlr_text_input_v3.h",
+    "wlr/types/wlr_input_method_v2.h", "wlr/types/wlr_virtual_pointer_v1.h",
+    "wlr/types/wlr_virtual_keyboard_v1.h", "wlr/types/wlr_output_management_v1.h",
+    "wlr/types/wlr_keyboard_shortcuts_inhibit_v1.h",
 }
 
 local function sh(cmd)

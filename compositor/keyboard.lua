@@ -46,7 +46,9 @@ end
 local function key(server, kb, event)
     local wlr_keyboard = kb.wlr
     local seat = server.seat
-    if event.state == C.WL_KEYBOARD_KEY_STATE_PRESSED then
+    server.on_activity()
+    if event.state == C.WL_KEYBOARD_KEY_STATE_PRESSED and not server.locked
+        and not server.shortcuts_inhibited() then
         local mods = wlr_keyboard:get_modifiers()
         local n = lib.xkb_state_key_get_syms(wlr_keyboard.xkb_state, event.keycode + 8, syms_out)
         for i = 0, n - 1 do
@@ -62,6 +64,14 @@ local function key(server, kb, event)
             end
         end
     end
+    -- An input method grabbing the keyboard sees keys first (not its own
+    -- virtual keyboard's, which would loop).
+    local grab = server.input_method_grab
+    if grab ~= nil and not kb.virtual then
+        lib.wlr_input_method_keyboard_grab_v2_set_keyboard(grab, wlr_keyboard)
+        lib.wlr_input_method_keyboard_grab_v2_send_key(grab, event.time_msec, event.keycode, event.state)
+        return
+    end
     seat:set_keyboard(wlr_keyboard)
     seat:keyboard_notify_key(event.time_msec, event.keycode, event.state)
 end
@@ -72,6 +82,7 @@ local function configure(server, kb)
     local keys, mice, errors = shortcuts.compile(config.shortcuts)
     for _, err in ipairs(errors) do log.warn("keyboard %s: %s", kb.name, err) end
     kb.keys, kb.mouse = keys, mice
+    if kb.virtual then return end -- virtual keyboards bring their own keymap
     set_keymap(kb.wlr, config.xkb)
     local rep = config["repeat"] or {}
     kb.wlr:set_repeat_info(rep.rate or 30, rep.delay or 300)
@@ -83,11 +94,14 @@ function keyboard.reconfigure_all(server)
     rebuild_mouse_shortcuts(server)
 end
 
-function keyboard.add_device(server, device)
+--- Add a keyboard. `virtual` keyboards (virtual-keyboard protocol) keep the
+--- keymap their client set.
+function keyboard.add_device(server, device, virtual)
     local wlr_keyboard = lib.wlr_keyboard_from_input_device(device)
-    local name = wl.string(device.name)
+    local name = wl.string(device.name) or "virtual"
     local kb = {
         name = name,
+        virtual = virtual or false,
         wlr = wlr_keyboard,
         keys = {},
         mouse = {},
@@ -96,9 +110,15 @@ function keyboard.add_device(server, device)
     configure(server, kb)
 
     kb.scope:listen(wlr_keyboard.events.modifiers, function()
+        server.modifiers = wlr_keyboard:get_modifiers()
+        local grab = server.input_method_grab
+        if grab ~= nil and not kb.virtual then
+            lib.wlr_input_method_keyboard_grab_v2_set_keyboard(grab, wlr_keyboard)
+            lib.wlr_input_method_keyboard_grab_v2_send_modifiers(grab, wlr_keyboard.modifiers)
+            return
+        end
         server.seat:set_keyboard(wlr_keyboard)
         server.seat:keyboard_notify_modifiers(wlr_keyboard.modifiers)
-        server.modifiers = wlr_keyboard:get_modifiers()
     end)
     kb.scope:listen(wlr_keyboard.events.key, function(event) key(server, kb, event) end,
         "struct wlr_keyboard_key_event")

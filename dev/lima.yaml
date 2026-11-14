@@ -44,6 +44,7 @@ provision:
       vips glib2 \
       seatd mesa-dri-drivers mesa-libEGL mesa-libgbm \
       xorg-x11-server-Xwayland xeyes foot grim \
+      wtype wlrctl swaylock wlr-randr wl-clipboard \
       dejavu-sans-mono-fonts
 
     # wlr-protocols isn't packaged on Fedora; the compositor expects the XML

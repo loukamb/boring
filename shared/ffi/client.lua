@@ -178,3 +178,13 @@ struct xdg_popup_listener {
     void (*repositioned)(void *data, struct xdg_popup *xdg_popup, uint32_t token);
 };
 ]]
+
+return {
+    structs = {
+        "wl_buffer_listener", "wl_callback_listener", "wl_data_device_listener", "wl_data_offer_listener",
+        "wl_data_source_listener", "wl_display_listener", "wl_keyboard_listener", "wl_output_listener",
+        "wl_pointer_listener", "wl_registry_listener", "wl_seat_listener", "wl_shell_surface_listener",
+        "wl_shm_listener", "wl_surface_listener", "wl_touch_listener", "xdg_popup_listener",
+        "xdg_surface_listener", "xdg_toplevel_listener", "xdg_wm_base_listener", "zwlr_layer_surface_v1_listener",
+    },
+}

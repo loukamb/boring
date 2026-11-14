@@ -1,6 +1,6 @@
 -- Methods on wlroots objects through ffi.metatype.
 --
--- For each struct below, `obj:name(...)` calls the C function
+-- For every wl_*/wlr_* struct, `obj:name(...)` calls the C function
 -- `<prefix>name(obj, ...)`, where the prefix is the struct name plus "_":
 --
 --   tree.node:set_position(x, y)     -- wlr_scene_node_set_position(node, x, y)
@@ -24,19 +24,6 @@ extra.wlr_box = {
     contains = function(b, x, y)
         return x >= b.x and y >= b.y and x < b.x + b.width and y < b.y + b.height
     end,
-}
-
-local structs = {
-    "wl_display", "wl_event_loop", "wl_client", "wl_resource",
-    "wlr_backend", "wlr_renderer", "wlr_allocator", "wlr_compositor",
-    "wlr_output", "wlr_output_layout", "wlr_output_state",
-    "wlr_scene", "wlr_scene_node", "wlr_scene_tree", "wlr_scene_rect", "wlr_scene_buffer",
-    "wlr_scene_output", "wlr_scene_output_layout",
-    "wlr_seat", "wlr_cursor", "wlr_xcursor_manager", "wlr_keyboard", "wlr_input_device",
-    "wlr_surface", "wlr_xdg_shell", "wlr_xdg_surface", "wlr_xdg_toplevel", "wlr_xdg_popup",
-    "wlr_xdg_toplevel_decoration_v1", "wlr_layer_surface_v1",
-    "wlr_xwayland", "wlr_xwayland_surface",
-    "wlr_foreign_toplevel_handle_v1", "wlr_buffer", "wlr_texture", "wlr_box",
 }
 
 --- Install method lookup on a struct type. `lib` resolves C symbol names.
@@ -63,15 +50,20 @@ end
 
 local installed = false
 
---- Install metatypes for all structs. Call once, after the bindings load.
+--- Install metatypes on every wl_*/wlr_* struct the bindings define.
+--- Call once, after the bindings load.
 ---@param lib table symbol table from shared.ffi.lib
 function types.install(lib)
     if installed then
         return
     end
     installed = true
-    for _, name in ipairs(structs) do
-        types[name] = install(name, lib)
+    for _, binding in ipairs({ require("shared.ffi.common"), require("shared.ffi.server") }) do
+        for _, name in ipairs(binding.structs) do
+            if name:match("^wlr?_") then
+                types[name] = install(name, lib)
+            end
+        end
     end
 end
 

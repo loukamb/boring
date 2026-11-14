@@ -538,3 +538,10 @@ enum xdg_popup_error {
     XDG_POPUP_ERROR_INVALID_GRAB = 0,
 };
 ]]
+
+return {
+    structs = {
+        "timespec", "wl_array", "wl_interface", "wl_list",
+        "wl_message",
+    },
+}

@@ -19,6 +19,9 @@ local modules = {
     require("compositor.pointer"),
     require("compositor.xdg_shell"),
     require("compositor.layer_shell"),
+    require("compositor.session_lock"),
+    require("compositor.text_input"),
+    require("compositor.output_management"),
     require("compositor.protocols"),
 }
 

@@ -78,6 +78,9 @@ no module-level singletons to reach into.
 | `layout.lua` | Per-monitor layout state, delegation to layout plugins |
 | `xdg_shell.lua` | xdg toplevels → windows, popups, decorations |
 | `layer_shell.lua` | Layer surfaces, exclusive zones, usable area |
+| `session_lock.lua` | ext-session-lock: lock screens, fail-closed |
+| `text_input.lua` | text-input-v3 ↔ input-method-v2 relay |
+| `output_management.lua` | wlr-output-management, output power (DPMS) |
 | `protocols.lua` | Protocols wlroots implements, one self-contained entry each |
 | `api.lua` | The `boring` API for config and plugins |
 | `process.lua` | Child processes, reaped via SIGCHLD on the event loop |
@@ -150,6 +153,8 @@ a smoke test in the VM display.
    implementations; config rules are plain tables.
 4. ~~**Plugins**~~ Done: every plugin uses only the `boring` API and runs in
    the config environment.
-5. **New protocols** (see [PROTOCOLS.md](PROTOCOLS.md)): primary selection,
-   text-input/input-method, xdg-toplevel-icon, ext-image-copy-capture,
-   session-lock and so on, each added as one self-contained module.
+5. ~~**New protocols**~~ Done: session lock, input methods, virtual
+   keyboard/pointer, primary selection, data control, output management and
+   power, idle notify, gestures, ext-image-copy-capture, ext-foreign-toplevel-list
+   and more ([PROTOCOLS.md](PROTOCOLS.md)), with integration tests driving them
+   through real clients.

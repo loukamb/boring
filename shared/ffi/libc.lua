@@ -164,3 +164,10 @@ enum {
     CLOCK_MONOTONIC = 1
 };
 ]]
+
+return {
+    structs = {
+        "dirent", "inotify_event", "pollfd", "statx",
+        "statx_timestamp",
+    },
+}

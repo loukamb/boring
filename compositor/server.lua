@@ -33,6 +33,9 @@ function server.new()
         monitors = {},  -- addr(wlr_output) -> layout state for that output
         layers = {},
         running = false,
+        -- Hooks protocols fill in (compositor/protocols.lua):
+        on_activity = function() end,             -- any input event (idle tracking)
+        shortcuts_inhibited = function() return false end,
     }
 
     s.display = check(lib.wl_display_create(), "wl_display")
@@ -47,8 +50,8 @@ function server.new()
     s.scene = check(lib.wlr_scene_create(), "scene")
     s.scene_layout = check(lib.wlr_scene_attach_output_layout(s.scene, s.output_layout), "scene layout")
 
-    -- Scene layers, bottom to top (wlr-layer-shell order, plus X11 popups).
-    for _, name in ipairs({ "background", "bottom", "windows", "top", "overlay", "unmanaged" }) do
+    -- Scene layers, bottom to top: wlr-layer-shell order, X11 popups, lock screen.
+    for _, name in ipairs({ "background", "bottom", "windows", "top", "overlay", "unmanaged", "lock" }) do
         s.layers[name] = check(lib.wlr_scene_tree_create(s.scene.tree), "scene layer " .. name)
     end
 

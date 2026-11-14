@@ -40,6 +40,11 @@ local function remove(list, item)
     return false
 end
 
+--- Is the keyboard held by a lock screen or an exclusive layer surface?
+function windows.keyboard_grabbed(server)
+    return server.locked ~= nil or server.exclusive_focus ~= nil
+end
+
 local function keyboard_enter(server, surface)
     local seat = server.seat
     local kb = lib.wlr_seat_get_keyboard(seat)
@@ -69,8 +74,8 @@ function windows.focus(server, w)
     table.insert(server.windows, 1, w)
     w.activated = true
     w.impl.set_activated(true)
-    -- A layer surface with exclusive keyboard focus keeps the keyboard.
-    if not server.exclusive_focus then
+    -- A lock screen or exclusive layer surface keeps the keyboard.
+    if not windows.keyboard_grabbed(server) then
         keyboard_enter(server, w.surface)
     end
 
@@ -123,7 +128,7 @@ function windows.unmap(server, w)
         local next_window = server.windows[1]
         if next_window then
             windows.focus(server, next_window)
-        elseif not server.exclusive_focus then
+        elseif not windows.keyboard_grabbed(server) then
             lib.wlr_seat_keyboard_notify_clear_focus(server.seat)
         end
     end

@@ -64,6 +64,9 @@ local function update_keyboard_focus(server)
     end
     local was = server.exclusive_focus
     server.exclusive_focus = exclusive
+    if server.locked then
+        return -- the lock screen has the keyboard
+    end
     if exclusive then
         local seat = server.seat
         local kb = lib.wlr_seat_get_keyboard(seat)

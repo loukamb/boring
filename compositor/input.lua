@@ -44,8 +44,34 @@ function input.setup(server)
 
     lib.wlr_data_device_manager_create(server.display)
 
+    -- Middle-click paste.
+    lib.wlr_primary_selection_v1_device_manager_create(server.display)
+    scope:listen(seat.events.request_set_primary_selection, function(event)
+        seat:set_primary_selection(event.source, event.serial)
+    end, "struct wlr_seat_request_set_primary_selection_event")
+
+    -- Virtual devices (wtype, wlrctl, wayvnc, input methods, tests).
+    local vkbd = lib.wlr_virtual_keyboard_manager_v1_create(server.display)
+    scope:listen(vkbd.events.new_virtual_keyboard, function(vk)
+        keyboard.add_device(server, vk.keyboard.base, true)
+        input.update_capabilities(server)
+    end, "struct wlr_virtual_keyboard_v1")
+
+    local vptr = lib.wlr_virtual_pointer_manager_v1_create(server.display)
+    scope:listen(vptr.events.new_virtual_pointer, function(event)
+        local device = event.new_pointer.pointer.base
+        pointer.add_device(server, device)
+        if event.suggested_output ~= nil then
+            server.cursor:map_input_to_output(device, event.suggested_output)
+        end
+    end, "struct wlr_virtual_pointer_v1_new_pointer_event")
+
     return { "wl_seat", "wl_keyboard", "wl_pointer", "wl_touch",
-        "wl_data_device_manager", "wl_data_device", "wl_data_offer", "wl_data_source" }
+        "wl_data_device_manager", "wl_data_device", "wl_data_offer", "wl_data_source",
+        "zwp_primary_selection_device_manager_v1", "zwp_primary_selection_device_v1",
+        "zwp_primary_selection_offer_v1", "zwp_primary_selection_source_v1",
+        "zwp_virtual_keyboard_manager_v1", "zwp_virtual_keyboard_v1",
+        "zwlr_virtual_pointer_manager_v1", "zwlr_virtual_pointer_v1" }
 end
 
 return input
