@@ -28,14 +28,13 @@ local function premultiply(rgba)
     return ffi.new("float[4]", { r * a, g * a, b * a, a })
 end
 
-function plugin:mount(config)
-    config = config or {}
+function plugin:mount(config, ctx)
     local colors = config.colors or {}
     local width = config.width or DEFAULTS.width
     local normal = premultiply(parse_color(colors.normal or DEFAULTS.normal))
     local focused = premultiply(parse_color(colors.focused or DEFAULTS.focused))
     local lib = boring.wl.lib
-    local scope = boring.scope("borders")
+    local scope = ctx.scope
 
     local function update(w)
         local b = w.data.borders
@@ -63,11 +62,13 @@ function plugin:mount(config)
         end
     end
 
-    scope:subscribe(boring.events, "window:map", function(w)
+    local function attach(w)
         local function rect() return lib.wlr_scene_rect_create(w.tree, 0, 0, normal) end
         w.data.borders = { top = rect(), bottom = rect(), left = rect(), right = rect() }
         update(w)
-    end)
+    end
+
+    scope:subscribe(boring.events, "window:map", attach)
     scope:subscribe(boring.events, "window:unmap", function(w)
         local b = w.data.borders
         if not b then return end
@@ -80,13 +81,16 @@ function plugin:mount(config)
     scope:subscribe(boring.events, "window:focus", function(w) set_color(w, focused) end)
     scope:subscribe(boring.events, "window:blur", function(w) set_color(w, normal) end)
 
-    self._scope = scope
-    return {}
-end
+    -- Borders for windows that are already open (mounted after a reload).
+    for _, w in ipairs(boring.windows()) do
+        if not w.data.borders then
+            attach(w)
+            if w == boring.focused() then set_color(w, focused) end
+        end
+    end
 
-function plugin:unmount()
-    if self._scope then
-        -- Remove borders from windows that still have them.
+    -- Remove borders from windows that still have them.
+    scope:defer(function()
         for _, w in ipairs(boring.windows()) do
             local b = w.data.borders
             if b then
@@ -94,9 +98,7 @@ function plugin:unmount()
                 w.data.borders = nil
             end
         end
-        self._scope:close()
-        self._scope = nil
-    end
+    end)
 end
 
 plugin._private = {

@@ -179,7 +179,7 @@ a smoke test in the VM display.
 
 ### Plugins
 
-6. **Plugin contract and loader.** A plugin is `{ name, mount(config, ctx),
+6. ~~**Plugin contract and loader.**~~ Done. A plugin is `{ name, mount(config, ctx),
    unmount? }`. `ctx.scope` is created by the loader and closed on unmount,
    so most plugins need no `unmount`; `ctx.state` is a table that survives
    config reloads. A reload only remounts plugins whose file or config

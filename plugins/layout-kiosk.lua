@@ -46,13 +46,10 @@ end
 function kiosk:begin_move() return true end
 function kiosk:begin_resize() return true end
 
-function plugin:mount()
+function plugin:mount(_, ctx)
     boring.layout.register("kiosk", kiosk)
+    ctx.scope:defer(function() boring.layout.unregister("kiosk") end)
     return { layout = kiosk }
-end
-
-function plugin:unmount()
-    boring.layout.unregister("kiosk")
 end
 
 return plugin

@@ -51,7 +51,7 @@ function harness.run(opts)
         "WLR_LIBINPUT_NO_DEVICES=1",
         "BORING_TEST=1",
         "timeout " .. shell_quote(timeout),
-        "luajit switch.lua compositor --config=" .. shell_quote(config),
+        "luajit boring.lua --config=" .. shell_quote(config),
         ">" .. shell_quote(log_file),
         "2>&1",
     }, " ")
@@ -96,7 +96,7 @@ function harness.start(opts)
 
     local pid = read_command(table.concat({
         env, "WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 BORING_TEST=1",
-        "luajit switch.lua compositor --config=" .. shell_quote(config),
+        "luajit boring.lua --config=" .. shell_quote(config),
         ">" .. shell_quote(log_file), "2>&1 & echo $!",
     }, " ")):match("%d+")
 

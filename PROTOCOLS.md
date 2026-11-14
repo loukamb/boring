@@ -4,8 +4,8 @@ The live list comes from the compositor itself, checked against the protocol
 XML installed on the machine:
 
 ```bash
-luajit switch.lua compositor --protocols            # everything
-luajit switch.lua compositor --protocols=missing    # or =implemented
+./boring.lua --protocols            # everything
+./boring.lua --protocols=missing    # or =implemented
 ```
 
 ## Implemented

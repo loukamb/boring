@@ -15,7 +15,7 @@ trap '"$vm" kill >/dev/null 2>&1 || true' EXIT
     || { echo "compositor did not start:"; cat "$log"; exit 1; }
 "$vm" exec sh -c 'WAYLAND_DISPLAY=wayland-0 setsid foot >/tmp/foot.log 2>&1 & sleep 2'
 "$vm" screenshot "$out" >/dev/null
-"$vm" exec sh -c 'pgrep -f "switch.lua compositor" >/dev/null && pgrep -x foot >/dev/null' \
+"$vm" exec sh -c 'pgrep -f "boring.lua" >/dev/null && pgrep -x foot >/dev/null' \
     || { echo "compositor or client died:"; cat "$log"; exit 1; }
 if grep -E 'err!|Fatal|Assertion' "$log"; then
     echo "errors in compositor log (above)"; exit 1

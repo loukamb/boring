@@ -34,10 +34,9 @@ local function value_for(config, output_name)
     return wildcard or DEFAULT
 end
 
-function plugin:mount(config)
-    config = config or {}
+function plugin:mount(config, ctx)
     local lib = boring.wl.lib
-    local scope = boring.scope("wallpaper")
+    local scope = ctx.scope
     local per_output = {} -- output -> { rect = scene_rect } or { process = p }
 
     local function remove(o)
@@ -82,16 +81,6 @@ function plugin:mount(config)
     scope:defer(function()
         for o in pairs(per_output) do remove(o) end
     end)
-
-    self._scope = scope
-    return {}
-end
-
-function plugin:unmount()
-    if self._scope then
-        self._scope:close()
-        self._scope = nil
-    end
 end
 
 return plugin

@@ -42,7 +42,7 @@ To try the compositor inside your current Wayland session, run it nested with
 wlroots' Wayland backend; it opens as a regular window on your host compositor:
 
 ```bash
-WLR_BACKENDS=wayland luajit switch.lua compositor --config=configs/nested-wayland.lua
+WLR_BACKENDS=wayland ./boring.lua --config=configs/nested-wayland.lua
 ```
 
 `configs/nested-wayland.lua` avoids host-reserved Super-key shortcuts,
@@ -57,12 +57,12 @@ On macOS, use the development VM instead; see [`dev/README.md`](/dev/README.md).
 
 Saving the configuration file reloads it (plugins are remounted, keyboards reconfigured); a config with errors is refused and the running one stays. Pass `--watch=false` to turn that off.
 
-To download the compositor, clone the repository, then use `switch.lua` to launch the compositor program:
+To download the compositor, clone the repository, then run `boring.lua` from it:
 
 ```bash
 git clone https://github.com/loukamb/boring.git
 cd boring
-./switch.lua compositor
+./boring.lua
 ```
 
 ## Development
@@ -119,11 +119,11 @@ Lifecycle hygiene check:
 rg "listener\.connect|setmetatable" compositor plugins
 ```
 
-This should only match `compositor/config` (the configuration sandbox). Listeners in compositor modules and plugins go through a scope (`scope:listen`), so they're disconnected when the object they belong to goes away.
+This should only match `compositor/config` and `compositor/plugin.lua` (the sandbox environments for config and plugins). Listeners in compositor modules and plugins go through a scope (`scope:listen`), so they're disconnected when the object they belong to goes away.
 
 ### Plugins
 
-To write a plugin, put a Lua file in the `~/.config/boring/plugins` directory that returns a table with a `name` field alongside `mount` and `unmount` functions. You can also create a folder and move your plugin's entrypoint to `$DIR/init.lua` if you have to ship multiple files. To enable your plugin, add it to your configuration file:
+To write a plugin, put a Lua file in the `~/.config/boring/plugins` directory that returns a table with a `name` field and a `mount` function. You can also create a folder and move your plugin's entrypoint to `$DIR/init.lua` if you have to ship multiple files, or mount a file by path (`plugin("./my-plugin.lua")`). To enable your plugin, add it to your configuration file:
 
 ```lua
 -- This will load and mount the plugin.
@@ -131,14 +131,16 @@ To write a plugin, put a Lua file in the `~/.config/boring/plugins` directory th
 local my_plugin = plugin("my-plugin"):mount()
 ```
 
-The second argument of `plugin.mount` will be passed to the plugin's `mount` function, which allows you to pass configuration to the plugin:
+The table passed to `:mount` is given to the plugin's `mount` function, which allows you to pass configuration to the plugin:
 
 ```lua
 -- config.lua
 local my_plugin = plugin("my-plugin"):mount({ value = "hello" })
 
 -- plugins/my-plugin.lua
-function plugin:mount(config)
+local plugin = { name = "my-plugin" }
+
+function plugin:mount(config, ctx)
     print(config.value)
 
     -- This value will be returned to the :mount() invoker.
@@ -148,24 +150,24 @@ end
 return plugin
 ```
 
-Plugins and configuration share the same environment, so anything that's possible in configuration is possible in plugins. Both talk to the compositor through the `boring` global ([`compositor/api.lua`](/compositor/api.lua)):
+Plugins and configuration share the same globals, so anything that's possible in configuration is possible in plugins. Both talk to the compositor through the `boring` global ([`compositor/api.lua`](/compositor/api.lua)). `mount` also gets a `ctx` ([`compositor/plugin.lua`](/compositor/plugin.lua)):
+
+- `ctx.scope` undoes everything registered through it when the plugin is unmounted, so most plugins need no `unmount` function (it's optional).
+- `ctx.state` is a table that survives config reloads, for state that shouldn't be lost when the plugin is remounted.
 
 ```lua
-function plugin:mount(config)
-    -- A scope undoes everything registered through it when closed.
-    self.scope = boring.scope("my-plugin")
-
-    self.scope:subscribe(boring.events, "window:map", function(window)
+function plugin:mount(config, ctx)
+    ctx.scope:subscribe(boring.events, "window:map", function(window)
         print("new window", window:title(), window:app_id())
         window:set_position(100, 100)
     end)
-    self.scope:subscribe(boring.events, "window:focus", function(window) end)
-end
-
-function plugin:unmount()
-    self.scope:close()
+    ctx.scope:defer(function() print("unmounted") end)
 end
 ```
+
+When the config is saved, plugins it mounts with the same config (and an unchanged file) stay mounted; the others are remounted, and plugins it no longer mounts are unmounted.
+
+Plugins don't require each other. Code shared between plugins goes in a library, `require("@boring/library/<name>")`, which is loaded once per compositor and kept across reloads.
 
 Events: `window:map`, `window:unmap`, `window:focus`, `window:blur`, `window:commit`, `window:title`, `output:add`, `output:change`, `output:remove`, `ready`, `shutdown`. Windows have `position`, `set_position`, `geometry`, `bounds`, `size`, `set_size`, `raise`, `close`, `title`, `app_id`, `set_enabled` and a `data` table for plugin state ([`compositor/window.lua`](/compositor/window.lua)). Layouts are registered with `boring.layout.register(name, impl)` ([`compositor/layout.lua`](/compositor/layout.lua) documents the interface). For anything else, `boring.wl` gives direct access to wlroots and `boring.server` to the compositor's objects.
 

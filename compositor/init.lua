@@ -1,5 +1,5 @@
 #!/usr/bin/env luajit
--- The compositor program: `luajit switch.lua compositor [--config=path]`.
+-- The compositor program: `./boring.lua [--config=path]`.
 --
 -- Order matters: the server and every protocol exist before the config
 -- runs, so config and plugins can use the whole `boring` API; the backend
@@ -69,7 +69,7 @@ local function main(args)
     server_mod.run(server)
 
     server.events:emit("shutdown")
-    require("compositor.plugin").unmount_all()
+    require("compositor.plugin").unmount_all(server)
     process.stop_all()
     server_mod.destroy(server)
 end

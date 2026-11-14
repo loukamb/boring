@@ -38,7 +38,9 @@ runtime.default_environment = {
         mouse = rules.namespace("mouse", "mice", rules.validate_mouse, list_of),
     },
     actions = require("compositor.config.actions"),
-    plugin = plugin_module.get_plugin_function(),
+    plugin = function(name)
+        return plugin_module.handle(require("compositor.api").current().server, name)
+    end,
 }
 
 --- Run `fn` with `instance` as the configuration being defined.
@@ -97,7 +99,9 @@ function runtime.new()
     end
 
     -- The sandbox falls back to globals; `require` also understands @boring/.
-    local custom_require = plugin_module.create_custom_require(require)
+    local function custom_require(name)
+        return plugin_module.require(require("compositor.api").current().server, name)
+    end
     setmetatable(instance.env, {
         __index = function(_, key)
             if key == "require" then return custom_require end

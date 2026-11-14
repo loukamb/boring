@@ -707,7 +707,29 @@ end
 -- Tiling Layout Interface
 --------------------------------------------------------------------------------
 
+-- A tree saved by shutdown (plugin remount), with windows that went away in
+-- the meantime removed and the interactive state reset.
+local function restore(saved, monitor_state)
+    local present = {}
+    for _, w in ipairs(monitor_state.windows or {}) do present[w] = true end
+    local leaves = {}
+    for _, child in ipairs(saved.children) do get_all_leaves(child, leaves) end
+    for _, leaf in ipairs(leaves) do
+        if not present[leaf.surface] then remove_window(saved, leaf.surface) end
+    end
+    saved.grabbed_surface, saved.mode = nil, "none"
+    saved.h_con, saved.h_sib, saved.h_siblings = nil, nil, nil
+    saved.v_con, saved.v_sib, saved.v_siblings = nil, nil, nil
+    return saved
+end
+
 function tiling:init(monitor_state)
+    local saved = self.saved and self.saved[monitor_state.output]
+    if saved then
+        self.saved[monitor_state.output] = nil
+        monitor_state.tiling = restore(saved, monitor_state)
+        return
+    end
     monitor_state.tiling = {
         -- Workspace-level layout (like Sway's workspace.layout)
         layout = "horizontal", -- "horizontal" or "vertical"
@@ -740,6 +762,15 @@ function tiling:init(monitor_state)
 end
 
 function tiling:shutdown(monitor_state)
+    if self.saved and monitor_state.tiling then
+        -- Drop trees of outputs that are gone, then keep this one.
+        local live = {}
+        for _, o in ipairs(boring.outputs()) do live[o] = true end
+        for o in pairs(self.saved) do
+            if not live[o] then self.saved[o] = nil end
+        end
+        self.saved[monitor_state.output] = monitor_state.tiling
+    end
     monitor_state.tiling = nil
 end
 
@@ -749,6 +780,12 @@ end
 
 function tiling:on_window_add(monitor_state, surface)
     local ts = monitor_state.tiling
+
+    -- Already in a restored tree.
+    if find_in_children(ts.children, surface) then
+        arrange_workspace(monitor_state)
+        return
+    end
 
     -- New windows go next to the focused one, if it's on this monitor.
     local focused = boring.focused()
@@ -1126,13 +1163,16 @@ plugin._private = {
     find_leaf_at = find_leaf_at,
 }
 
-function plugin:mount(config)
+function plugin:mount(_, ctx)
+    -- Trees are kept per output across remounts (config reloads).
+    ctx.state.trees = ctx.state.trees or {}
+    tiling.saved = ctx.state.trees
     boring.layout.register("tiling", tiling)
+    ctx.scope:defer(function()
+        boring.layout.unregister("tiling")
+        tiling.saved = nil
+    end)
     return { layout = tiling }
-end
-
-function plugin:unmount()
-    boring.layout.unregister("tiling")
 end
 
 return plugin

@@ -75,6 +75,10 @@ end
 ---@param name string Plugin name (e.g., "@boring/screenshot" or "my-plugin")
 ---@return string|nil path
 function paths.resolve_plugin(name)
+    -- A path to a file: "./my-plugin.lua", "/abs/plugin.lua"
+    if name:match("%.lua$") and name:find("/", 1, true) then
+        return paths.exists(name) and name or nil
+    end
     -- @boring/ prefix -> default plugins directory
     if name:sub(1, 8) == "@boring/" then
         local plugin_name = name:sub(9)

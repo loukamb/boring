@@ -7,8 +7,8 @@ local log = require("shared.log")
 
 local state = {}
 
---- Load (or reload) the configuration file. Unmounts plugins mounted by the
---- previous load; the config mounts the ones it wants again.
+--- Load (or reload) the configuration file. Plugins the new config mounts
+--- unchanged stay mounted; the ones it no longer mounts are unmounted.
 ---
 --- The first load fails hard. A reload with a broken config (syntax error)
 --- is refused and the running config stays in place.
@@ -28,11 +28,16 @@ function state.reload_config(path)
     end
     state.path = path
 
-    require("compositor.plugin").unmount_all()
+    local plugins = require("compositor.plugin")
+    local server = require("compositor.api").current().server
+    local previous = config._current
     local instance = config.new()
     config._current = instance
+    plugins.begin_reload(server)
     local ok, run_err = config.execute(instance, fn, "config")
+    plugins.end_reload(server, ok)
     if not ok then
+        config._current = previous
         if first then error("failed to run config: " .. tostring(run_err), 0) end
         log.error("config failed while reloading: %s", tostring(run_err))
         return false

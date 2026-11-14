@@ -40,7 +40,7 @@ function actions.cycle() boring().cycle_focus() end
 
 --- Restart the compositor in place.
 function actions.restart()
-    process.spawn(string.format("cd '%s' && exec luajit switch.lua compositor", process.cwd()))
+    process.spawn(string.format("cd '%s' && exec luajit boring.lua", process.cwd()))
     boring().exit()
 end
 

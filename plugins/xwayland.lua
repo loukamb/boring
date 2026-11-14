@@ -8,7 +8,7 @@
 
 local plugin = { name = "xwayland" }
 
-function plugin:mount(config)
+function plugin:mount(_, ctx)
     local wl = boring.wl
     local lib, C, ffi = wl.lib, wl.C, wl.ffi
     local server = boring.server
@@ -23,8 +23,7 @@ function plugin:mount(config)
         return {}
     end
 
-    local scope = boring.scope("xwayland")
-    self._scope = scope
+    local scope = ctx.scope
     scope:defer(function() lib.wlr_xwayland_destroy(xwayland) end)
 
     -- Role implementation (see compositor/window.lua).
@@ -152,14 +151,6 @@ function plugin:mount(config)
     local display = wl.string(xwayland.display_name)
     if display then C.setenv("DISPLAY", display, 1) end
     boring.implement("xwayland_shell_v1", "xwayland_surface_v1")
-    return {}
-end
-
-function plugin:unmount()
-    if self._scope then
-        self._scope:close()
-        self._scope = nil
-    end
 end
 
 return plugin

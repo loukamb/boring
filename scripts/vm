@@ -101,10 +101,10 @@ case "$cmd" in
                 export WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1
             fi
             export WLR_RENDERER="$0"
-            exec luajit switch.lua compositor "$@"
+            exec luajit boring.lua "$@"
         ' "${WLR_RENDERER:-pixman}" "$@"
         ;;
-    kill) in_vm pkill -f "switch.lua compositor" || echo "no compositor running" ;;
+    kill) in_vm pkill -f "luajit boring.lua" || echo "no compositor running" ;;
     screenshot)
         out="${1:-vm-screenshot.png}"
         in_vm env WAYLAND_DISPLAY=wayland-0 grim /tmp/boring-screenshot.png

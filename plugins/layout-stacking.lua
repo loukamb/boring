@@ -202,21 +202,13 @@ local function make_stacking(config)
     return stacking
 end
 
-function plugin:mount(config)
-    local stacking = make_stacking(config or {})
-    self._scope = boring.scope("layout-stacking")
-    self._scope:subscribe(boring.events, "window:commit", stacking.update_decorations)
-    self._scope:subscribe(boring.events, "window:title", stacking.update_decorations)
+function plugin:mount(config, ctx)
+    local stacking = make_stacking(config)
+    ctx.scope:subscribe(boring.events, "window:commit", stacking.update_decorations)
+    ctx.scope:subscribe(boring.events, "window:title", stacking.update_decorations)
     boring.layout.register("stacking", stacking)
+    ctx.scope:defer(function() boring.layout.unregister("stacking") end)
     return { layout = stacking }
-end
-
-function plugin:unmount()
-    boring.layout.unregister("stacking")
-    if self._scope then
-        self._scope:close()
-        self._scope = nil
-    end
 end
 
 return plugin

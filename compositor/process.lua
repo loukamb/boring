@@ -17,7 +17,7 @@ local process = {}
 local tracked = {} -- pid -> process record
 local all = {}     -- every process record created, for stop_all
 
---- Current working directory (where switch.lua runs from).
+--- Current working directory (where boring.lua runs from).
 function process.cwd()
     local buf = ffi.new("char[4096]")
     if C.getcwd(buf, 4096) ~= nil then
@@ -75,7 +75,7 @@ local function command(p)
         parts = { p.cmd }
     else
         -- A boring program, e.g. "clients.wallpaper", run from this checkout.
-        parts = { "cd", shell_quote(process.cwd()), "&&", "exec", "luajit", "switch.lua", p.program }
+        parts = { "cd", shell_quote(process.cwd()), "&&", "exec", "luajit", "boring.lua", "run", p.program }
     end
     for _, a in ipairs(p.args) do parts[#parts + 1] = shell_quote(a) end
     return table.concat(parts, " ")

@@ -24,7 +24,6 @@ local function quote(s)
 end
 
 function plugin:mount(config)
-    config = config or {}
     local directory = expand(config.directory or os.getenv("XDG_PICTURES_DIR") or "~/Pictures")
 
     local function target()
@@ -55,7 +54,5 @@ function plugin:mount(config)
         },
     }
 end
-
-function plugin:unmount() end
 
 return plugin
