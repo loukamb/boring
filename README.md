@@ -14,6 +14,7 @@ This is the monorepository for the boring Wayland compositor. As the name implie
 
 A set of default plugins are included that provides basic window management and Wayland functionality for those that don't want to spend too much time writing their own:
 
+- [`animations`](/plugins/animations.lua): Windows fade in and out as they open and close
 - [`borders`](/plugins/borders.lua): Draw borders around windows
 - [`layout-stacking`](/plugins/layout-stacking.lua): Traditional stacking layout
 - [`layout-tiling`](/plugins/layout-tiling.lua): Sway-inspired n-ary tiling layout
@@ -23,7 +24,7 @@ A set of default plugins are included that provides basic window management and 
 - [`wallpaper`](/plugins/wallpaper.lua): Wallpaper plugin
 - [`xwayland`](/plugins/xwayland.lua): XWayland integration
 
-The [default configuration](/default.lua) automatically mounts `borders`, `layout-stacking`, `screenshot`, `wallpaper`, and `xwayland`. The documentation for each plugin can be found in their respective files.
+The [default configuration](/default.lua) automatically mounts `animations`, `borders`, `layout-stacking`, `screenshot`, `wallpaper`, and `xwayland`. The documentation for each plugin can be found in their respective files.
 
 ## Usage
 
@@ -174,6 +175,7 @@ Plugins don't require each other. Code shared between plugins goes in a library,
 - [`workspaces`](/plugins/library/workspaces.lua): several spaces per output, published over `ext-workspace`
 - [`fullscreen`](/plugins/library/fullscreen.lua): fill an output and put the window back afterwards
 - [`text`](/plugins/library/text.lua): text drawn into the scene, with ellipsis and wrapping
+- [`animate`](/plugins/library/animate.lua): animated values; borders, stacking and wallpaper colours take them anywhere they take a colour
 
 Events: `window:map`, `window:unmap`, `window:focus`, `window:blur`, `window:commit`, `window:title`, `window:fullscreen`, `window:maximize`, `window:urgent`, `output:add`, `output:change`, `output:usable`, `output:remove`, `ready`, `shutdown`. Windows have `position`, `set_position`, `geometry`, `bounds`, `size`, `set_size`, `raise`, `close`, `title`, `app_id`, `set_enabled`, `visible`, `set_fullscreen`, `set_maximized`, `set_urgent` and a `data` table for plugin state ([`compositor/window.lua`](/compositor/window.lua)).
 

@@ -5,11 +5,14 @@
 --   plugin("@boring/wallpaper"):mount({
 --       ["*"] = "#fef3c7",                                  -- every output
 --       [monitor] = { image = "/path/to.jpg", scale = "fill" }, -- fill, fit, stretch, center, tile
+--       ["DP-1"] = animate.pulse({ from = "#1e293b", to = "#334155", period = 8000 }),
 --   })
 --
--- Keys are output names, "*", or monitor objects from monitor.new.
+-- Keys are output names, "*", or monitor objects from monitor.new. Colours
+-- can be animations (library/animate).
 
 local color = require("shared.color")
+local animate = require("@boring/library/animate")
 
 local plugin = { name = "wallpaper" }
 
@@ -41,6 +44,7 @@ function plugin:mount(config, ctx)
     local function remove(o)
         local entry = per_output[o]
         if not entry then return end
+        if entry.binding then animate.stop(entry.binding) end
         if entry.rect then entry.rect.node:destroy() end
         if entry.process then entry.process:stop() end
         per_output[o] = nil
@@ -67,9 +71,14 @@ function plugin:mount(config, ctx)
             per_output[o] = { process = p }
             return
         end
-        local c = color.hex(type(value) == "string" and value or DEFAULT) or color.hex(DEFAULT)
-        local rgba = color.float4(c)
-        per_output[o] = { rect = lib.wlr_scene_rect_create(boring.layers.background, 1, 1, rgba) }
+        if type(value) ~= "string" and not animate.is(value) and type(value) ~= "table" then value = DEFAULT end
+        local rect = lib.wlr_scene_rect_create(boring.layers.background, 1, 1, color.float4(color.hex(DEFAULT)))
+        local entry = { rect = rect }
+        per_output[o] = entry
+        local scratch = color.float4(color.hex(DEFAULT))
+        entry.binding = animate.bind(nil, value, function(c)
+            rect:set_color(color.float4_into(color.parse(c, color.hex(DEFAULT)), scratch))
+        end)
         place(o)
     end
 

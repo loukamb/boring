@@ -100,6 +100,9 @@ plugin("@boring/layout-stacking"):mount({
     }
 })
 
+-- Windows fade in when they open and out when they close.
+plugin("@boring/animations"):mount()
+
 -- Wallpapers!
 plugin("@boring/wallpaper"):mount({
     -- Keys are the monitors you want to apply wallpapers to.

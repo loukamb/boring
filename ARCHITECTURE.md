@@ -206,7 +206,7 @@ a smoke test in the VM display.
    focus and move, split direction, resize). Stacking gets maximize and
    minimize. Urgency (`xdg_activation`, the X11 urgency hint) becomes a
    `window:urgent` event, so borders' `urgent` colour does something.
-9. **`library/animate`.** Plugins take plain values or animations
+9. ~~**`library/animate`.**~~ Done. Plugins take plain values or animations
    (`animate.pulse`, `animate.ease`, …, plain tables) without telling them
    apart: `animate.bind(scope, value, apply)` calls `apply(v)` once for a
    plain value and every frame while an animation runs;

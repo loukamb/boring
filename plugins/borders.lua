@@ -8,9 +8,14 @@
 --           focused = "#f59e0b",
 --           urgent = "#ef4444",    -- a window wants attention
 --       },
+--       transition = 150,          -- ms to blend between colours (0: none)
 --   })
+--
+-- Colours can be animations (library/animate), e.g. an urgent border that
+-- pulses: urgent = animate.pulse({ from = "#ef4444", to = "#7f1d1d", period = 800 }).
 
 local color = require("shared.color")
+local animate = require("@boring/library/animate")
 
 local plugin = { name = "borders" }
 
@@ -19,10 +24,12 @@ local SIDES = { "top", "bottom", "left", "right" }
 function plugin:mount(config, ctx)
     local colors = config.colors or {}
     local width = config.width or 2
-    local normal = color.float4(color.parse(colors.normal, { 0.53, 0.53, 0.53, 1 }))
-    local focused = color.float4(color.parse(colors.focused, { 1, 1, 1, 1 }))
-    local urgent = color.float4(color.parse(colors.urgent, color.parse(colors.focused, { 1, 1, 1, 1 })))
+    local normal = colors.normal or "#888888"
+    local focused = colors.focused or "#ffffff"
+    local urgent = colors.urgent or focused
+    local transition = { duration = config.transition or 150 }
     local lib = boring.wl.lib
+    local initial = color.float4({ 0.5, 0.5, 0.5, 1 })
     local scope = ctx.scope
 
     local function update(w)
@@ -43,19 +50,33 @@ function plugin:mount(config, ctx)
         b.right.node:set_position(g.x + g.width, g.y)
     end
 
+    local function wanted(w)
+        return w == boring.focused() and focused or (w.urgent and urgent or normal)
+    end
+
     local function paint(w)
         local b = w.data.borders
         if not b then return end
-        local c = w == boring.focused() and focused or (w.urgent and urgent or normal)
-        for _, side in ipairs(SIDES) do b[side]:set_color(c) end
+        local want = wanted(w)
+        if b.want ~= want then
+            b.want = want
+            animate.to(b.color, want, transition)
+        end
         -- No borders around fullscreen windows.
         for _, side in ipairs(SIDES) do b[side].node:set_enabled(not w.fullscreen) end
     end
 
     local function attach(w)
         if w.data.borders then return end
-        local function rect() return lib.wlr_scene_rect_create(w.tree, 0, 0, normal) end
-        w.data.borders = { top = rect(), bottom = rect(), left = rect(), right = rect() }
+        local function rect() return lib.wlr_scene_rect_create(w.tree, 0, 0, initial) end
+        local b = { top = rect(), bottom = rect(), left = rect(), right = rect() }
+        w.data.borders = b
+        local scratch = color.float4({ 0, 0, 0, 0 })
+        b.want = wanted(w)
+        b.color = animate.bind(nil, b.want, function(c)
+            color.float4_into(c, scratch)
+            for _, side in ipairs(SIDES) do b[side]:set_color(scratch) end
+        end)
         update(w)
         paint(w)
     end
@@ -63,6 +84,7 @@ function plugin:mount(config, ctx)
     local function detach(w)
         local b = w.data.borders
         if not b then return end
+        animate.stop(b.color)
         for _, side in ipairs(SIDES) do b[side].node:destroy() end
         w.data.borders = nil
     end

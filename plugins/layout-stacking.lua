@@ -23,6 +23,9 @@
 --   ["Mod4+m"] = stacking.actions.maximize,   -- toggle, focused window
 --   ["Mod4+n"] = stacking.actions.minimize,
 --
+-- Theme colours can be animations (library/animate) for the bar and button
+-- backgrounds; text colours use their first frame.
+--
 -- Without `controls` (or with `decorations = false`) windows get no title
 -- bar. New windows open centred; dragging the title bar moves a window and
 -- double-clicking it maximizes. Maximized windows fill the usable area.
@@ -30,6 +33,7 @@
 local color = require("shared.color")
 local spaces = require("@boring/library/spaces")
 local text = require("@boring/library/text")
+local animate = require("@boring/library/animate")
 
 local plugin = { name = "layout-stacking" }
 
@@ -42,10 +46,11 @@ local function make_stacking(config)
     local decorated = controls ~= nil and config.decorations ~= false
     local height = theme.height or 24
     local font = theme.font or "Sans Bold 10"
-    local bar_color = color.parse(theme.decorations, { 0.2, 0.2, 0.2, 1 })
-    local title_color = color.parse(theme.title, { 1, 1, 1, 1 })
-    local button_bg = color.parse(theme.button_background, bar_color)
-    local button_fg = color.parse(theme.button_foreground, title_color)
+    local function still(v) return animate.is(v) and animate.sample(v, 0) or v end
+    local bar_color = theme.decorations or "#333333"
+    local title_color = color.parse(still(theme.title), { 1, 1, 1, 1 })
+    local button_bg = theme.button_background or bar_color
+    local button_fg = color.parse(still(theme.button_foreground), title_color)
     local lib = boring.wl.lib
 
     local stacking = {}
@@ -92,6 +97,7 @@ local function make_stacking(config)
         local d = w.data.stacking
         if not d then return end
         for _, off in ipairs(d.handlers) do off() end
+        for _, b in ipairs(d.bindings) do animate.stop(b) end
         d.tree.node:destroy()
         w.data.stacking = nil
     end
@@ -104,10 +110,20 @@ local function make_stacking(config)
 
         local tree = lib.wlr_scene_tree_create(w.tree)
         tree.node:set_position(g.x, g.y - height)
-        local d = { tree = tree, width = g.width, x = g.x, y = g.y, title = w:title(), handlers = {} }
+        local d = { tree = tree, width = g.width, x = g.x, y = g.y, title = w:title(), handlers = {}, bindings = {} }
         w.data.stacking = d
 
-        local bar = lib.wlr_scene_rect_create(tree, g.width, height, color.float4(bar_color))
+        -- A rect painted with a (possibly animated) colour.
+        local function rect(width, h, value)
+            local r = lib.wlr_scene_rect_create(tree, width, h, color.float4({ 0, 0, 0, 0 }))
+            local scratch = color.float4({ 0, 0, 0, 0 })
+            d.bindings[#d.bindings + 1] = animate.bind(nil, value, function(c)
+                r:set_color(color.float4_into(color.parse(c, { 0, 0, 0, 1 }), scratch))
+            end)
+            return r
+        end
+
+        local bar = rect(g.width, height, bar_color)
         local last_click = 0
         d.handlers[#d.handlers + 1] = boring.on_click(bar.node, function(win, button)
             if button ~= BUTTON_LEFT then return end
@@ -138,14 +154,14 @@ local function make_stacking(config)
                 x = x + math.max(0, (g.width - fixed) / math.max(spacers, 1))
             elseif c.type == "button" then
                 local bx = math.floor(x)
-                local rect = lib.wlr_scene_rect_create(tree, height, height, color.float4(button_bg))
-                rect.node:set_position(bx, 0)
+                local button = rect(height, height, button_bg)
+                button.node:set_position(bx, 0)
                 local node, iw, ih = text.draw(tree, ICONS[c.icon] or c.icon or "", { font = font, color = button_fg })
                 if node then
                     node.node:set_position(math.floor(bx + (height - iw) / 2), math.floor((height - ih) / 2))
                 end
                 local on_click = c.on_click or DEFAULT_CLICK[c.icon]
-                d.handlers[#d.handlers + 1] = boring.on_click(rect.node, function(win)
+                d.handlers[#d.handlers + 1] = boring.on_click(button.node, function(win)
                     if on_click then on_click(win) end
                 end)
                 x = x + height

@@ -73,6 +73,17 @@ function color.float4(c)
     return ffi.new("float[4]", c[1] * a, c[2] * a, c[3] * a, a)
 end
 
+---Write the premultiplied colour into an existing float[4] (no allocation;
+---for per-frame updates).
+---@param c Color
+---@param out ffi.cdata* float[4]
+---@return ffi.cdata* out
+function color.float4_into(c, out)
+    local a = c[4] or 1
+    out[0], out[1], out[2], out[3] = c[1] * a, c[2] * a, c[3] * a, a
+    return out
+end
+
 ---Convert color to hex string (ignores alpha)
 ---@param c Color RGBA color
 ---@return string Hex string in "#RRGGBB" format
