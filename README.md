@@ -83,7 +83,7 @@ The C declarations LuaJIT needs live in [`shared/ffi`](/shared/ffi/) and are gen
 luajit tools/ffi_gen.lua && luajit tools/ffi_check.lua    # or: scripts/vm ffi-gen
 ```
 
-Generation needs `gcc`, `pkg-config`, `wayland-scanner` and the `-devel` packages; running boring doesn't.
+Generation needs `gcc`, `pkg-config` and the `-devel` packages; running boring doesn't.
 
 ### Testing
 

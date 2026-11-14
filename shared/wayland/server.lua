@@ -12,6 +12,7 @@ local ffi = base.ffi
 -- Declarations are generated ahead of time (tools/ffi_gen.lua); at runtime we
 -- only load the libraries.
 require("shared.ffi.server")
+require("shared.ffi.libc")
 local lib = require("shared.ffi.lib").open({
     "libwlroots-0.20.so",
     "libwayland-server.so.0",

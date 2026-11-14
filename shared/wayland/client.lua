@@ -11,6 +11,7 @@ local ffi = base.ffi
 -- Declarations are generated ahead of time (tools/ffi_gen.lua); at runtime we
 -- only load the library.
 require("shared.ffi.client")
+require("shared.ffi.libc")
 local lib = require("shared.ffi.lib").open({ "libwayland-client.so.0" })
 
 
@@ -36,13 +37,13 @@ wayland._prevent_gc = {}
 wayland.WL_SHM_FORMAT_ARGB8888 = 0
 wayland.WL_SHM_FORMAT_XRGB8888 = 1
 
-wayland.PROT_READ = 0x1
-wayland.PROT_WRITE = 0x2
-wayland.MAP_SHARED = 0x01
+wayland.PROT_READ = ffi.C.PROT_READ
+wayland.PROT_WRITE = ffi.C.PROT_WRITE
+wayland.MAP_SHARED = ffi.C.MAP_SHARED
 
-wayland.O_RDWR = 2
-wayland.O_CREAT = 64
-wayland.O_EXCL = 128
+wayland.O_RDWR = ffi.C.O_RDWR
+wayland.O_CREAT = ffi.C.O_CREAT
+wayland.O_EXCL = ffi.C.O_EXCL
 
 -- Metatable that tries: 1) wl_ prefix in lib, 2) base module
 setmetatable(wayland, {

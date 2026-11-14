@@ -6,99 +6,38 @@ local bit = require("bit")
 local log = require("shared.log")
 local emitter = require("shared.emitter")
 
-ffi.cdef[[
-// inotify
-int inotify_init(void);
-int inotify_init1(int flags);
-int inotify_add_watch(int fd, const char *pathname, uint32_t mask);
-int inotify_rm_watch(int fd, int wd);
+require("shared.ffi.libc")
+local C = ffi.C
 
-// File operations
-int read(int fd, void *buf, size_t count);
-int close(int fd);
-int fcntl(int fd, int cmd, ...);
+local IN_ACCESS        = C.IN_ACCESS
+local IN_MODIFY        = C.IN_MODIFY
+local IN_ATTRIB        = C.IN_ATTRIB
+local IN_CLOSE_WRITE   = C.IN_CLOSE_WRITE
+local IN_CLOSE_NOWRITE = C.IN_CLOSE_NOWRITE
+local IN_OPEN          = C.IN_OPEN
+local IN_MOVED_FROM    = C.IN_MOVED_FROM
+local IN_MOVED_TO      = C.IN_MOVED_TO
+local IN_CREATE        = C.IN_CREATE
+local IN_DELETE        = C.IN_DELETE
+local IN_DELETE_SELF   = C.IN_DELETE_SELF
+local IN_MOVE_SELF     = C.IN_MOVE_SELF
+local IN_UNMOUNT       = C.IN_UNMOUNT
+local IN_Q_OVERFLOW    = C.IN_Q_OVERFLOW
+local IN_IGNORED       = C.IN_IGNORED
+local IN_ISDIR         = C.IN_ISDIR
+local IN_NONBLOCK      = C.IN_NONBLOCK
+local IN_CLOEXEC       = C.IN_CLOEXEC
+local F_GETFL          = C.F_GETFL
+local F_SETFL          = C.F_SETFL
+local O_NONBLOCK       = C.O_NONBLOCK
+local POLLIN           = C.POLLIN
+local S_IFMT           = C.S_IFMT
+local S_IFDIR          = C.S_IFDIR
+local AT_FDCWD         = C.AT_FDCWD
+local STATX_TYPE       = C.STATX_TYPE
 
-// Poll
-struct pollfd {
-    int fd;
-    short events;
-    short revents;
-};
-int poll(struct pollfd *fds, unsigned long nfds, int timeout);
-
-// Stat for directory detection
-struct stat {
-    unsigned long st_dev;
-    unsigned long st_ino;
-    unsigned long st_nlink;
-    unsigned int st_mode;
-    unsigned int st_uid;
-    unsigned int st_gid;
-    unsigned int __pad0;
-    unsigned long st_rdev;
-    long st_size;
-    long st_blksize;
-    long st_blocks;
-    long st_atime;
-    long st_atime_nsec;
-    long st_mtime;
-    long st_mtime_nsec;
-    long st_ctime;
-    long st_ctime_nsec;
-    long __unused[3];
-};
-int stat(const char *pathname, struct stat *statbuf);
-
-// Directory reading
-typedef struct DIR DIR;
-struct dirent {
-    unsigned long d_ino;
-    long d_off;
-    unsigned short d_reclen;
-    unsigned char d_type;
-    char d_name[256];
-};
-DIR *opendir(const char *name);
-struct dirent *readdir(DIR *dirp);
-int closedir(DIR *dirp);
-]]
-
--- inotify event masks
-local IN_ACCESS        = 0x00000001
-local IN_MODIFY        = 0x00000002
-local IN_ATTRIB        = 0x00000004
-local IN_CLOSE_WRITE   = 0x00000008
-local IN_CLOSE_NOWRITE = 0x00000010
-local IN_OPEN          = 0x00000020
-local IN_MOVED_FROM    = 0x00000040
-local IN_MOVED_TO      = 0x00000080
-local IN_CREATE        = 0x00000100
-local IN_DELETE        = 0x00000200
-local IN_DELETE_SELF   = 0x00000400
-local IN_MOVE_SELF     = 0x00000800
-local IN_UNMOUNT       = 0x00002000
-local IN_Q_OVERFLOW    = 0x00004000
-local IN_IGNORED       = 0x00008000
-local IN_ISDIR         = 0x40000000
-
--- fcntl commands
-local F_GETFL = 3
-local F_SETFL = 4
-local O_NONBLOCK = 2048
-
--- poll events
-local POLLIN = 0x0001
-
--- inotify_init1 flags
-local IN_NONBLOCK = 2048
-local IN_CLOEXEC = 524288
-
--- inotify event structure size
-local INOTIFY_EVENT_SIZE = 16  -- sizeof(struct inotify_event) without name
-
--- S_IFDIR for directory detection
-local S_IFDIR = 0x4000
-local S_IFMT = 0xF000
+-- Fixed part of struct inotify_event; the name follows it.
+local INOTIFY_EVENT_SIZE = ffi.sizeof("struct inotify_event")
 
 local watch = {}
 
@@ -138,10 +77,11 @@ function watch.new(opts)
 end
 
 -- Check if a path is a directory
+-- statx rather than stat: struct statx has the same layout on every architecture.
+local statx_buf = ffi.new("struct statx")
 local function is_directory(path)
-    local stat_buf = ffi.new("struct stat")
-    if ffi.C.stat(path, stat_buf) == 0 then
-        return bit.band(stat_buf.st_mode, S_IFMT) == S_IFDIR
+    if C.statx(AT_FDCWD, path, 0, STATX_TYPE, statx_buf) == 0 then
+        return bit.band(statx_buf.stx_mode, S_IFMT) == S_IFDIR
     end
     return false
 end

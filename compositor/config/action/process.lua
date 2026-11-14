@@ -34,11 +34,7 @@ function M.get_actions(helpers)
         ---Restart the compositor
         restart = function()
             local process_mod = require("compositor.process")
-            local ffi = require("ffi")
-            local buf = ffi.new("char[4096]")
-            local result = ffi.C.getcwd(buf, 4096)
-            local cwd = result ~= nil and ffi.string(buf) or "."
-            local cmd = string.format("cd %s && luajit switch.lua compositor", cwd)
+            local cmd = string.format("cd %s && luajit switch.lua compositor", process_mod.cwd())
             process_mod.new({ cmd = cmd }):start()
             local core_service = require("compositor.services.core")
             core_service:terminate()

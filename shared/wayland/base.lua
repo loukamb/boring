@@ -69,11 +69,8 @@ end
 
 -- Time utilities
 
-local CLOCK_MONOTONIC = 1
-
-ffi.cdef [[
-int clock_gettime(int clock_id, struct timespec *tp);
-]]
+require("shared.ffi.libc")
+local CLOCK_MONOTONIC = ffi.C.CLOCK_MONOTONIC
 
 local time_scratch = nil
 

@@ -2,7 +2,7 @@
 -- Generate the committed LuaJIT FFI bindings in shared/ffi/.
 --
 -- Run at development time, on a machine (or the dev VM) with the -devel
--- headers, pkg-config, gcc and wayland-scanner installed:
+-- headers, pkg-config and gcc installed:
 --
 --   luajit tools/ffi_gen.lua          # or: scripts/vm ffi-gen
 --
@@ -20,6 +20,7 @@
 package.path = "./?/init.lua;./?.lua;" .. package.path
 
 local cdecl = require("tools.cdecl")
+local wlscanner = require("tools.wlscanner")
 
 local OUT_DIR = "shared/ffi"
 
@@ -46,9 +47,8 @@ local bindings = {
         name = "server",
         packages = { "wlroots-0.20", "wayland-server", "xkbcommon", "libinput", "pixman-1" },
         defines = { WLR_USE_UNSTABLE = "" },
-        protocols = { kind = "server-header", list = server_protocols },
+        protocols = { side = "server", list = server_protocols },
         headers = {
-            "<time.h>", "<unistd.h>", "<stdlib.h>",
             "<wayland-server-core.h>",
             "<wlr/util/log.h>",
             "<wlr/backend.h>",
@@ -96,21 +96,56 @@ local bindings = {
             "/libinput%.h$", "%-protocol%.h$",
         },
         -- Plus these individual symbols from system headers.
-        root_symbols = { "fork", "execl", "setenv", "getpid", "clock_gettime" },
+        root_symbols = {},
     },
     {
         name = "client",
         packages = { "wayland-client" },
         defines = {},
-        protocols = { kind = "client-header", list = client_protocols },
+        protocols = { side = "client", list = client_protocols },
         headers = {
-            "<unistd.h>", "<stdlib.h>", "<sys/mman.h>",
             "<wayland-client.h>",
         },
         root_files = { "/wayland%-client", "/wayland%-util%.h$", "%-protocol%.h$" },
+        root_symbols = {},
+    },
+    {
+        -- The libc functions boring calls. Only arch-independent types: e.g.
+        -- statx rather than stat, whose layout differs between architectures.
+        name = "libc",
+        packages = {},
+        defines = { _GNU_SOURCE = "" },
+        protocols = { side = "client", list = {} },
+        headers = {
+            "<unistd.h>", "<stdlib.h>", "<fcntl.h>", "<poll.h>", "<dirent.h>",
+            "<signal.h>", "<time.h>", "<sys/inotify.h>", "<sys/stat.h>",
+            "<sys/wait.h>", "<sys/mman.h>",
+        },
+        root_files = {},
         root_symbols = {
-            "fork", "execl", "setenv", "getpid",
-            "mmap", "munmap", "close", "shm_open", "shm_unlink", "ftruncate",
+            -- processes and environment
+            "fork", "execl", "execvp", "kill", "waitpid", "getpid", "chdir", "getcwd",
+            "getenv", "setenv", "unsetenv",
+            -- files
+            "open", "read", "write", "close", "fcntl", "poll", "statx",
+            "opendir", "readdir", "closedir",
+            "inotify_init1", "inotify_add_watch", "inotify_rm_watch", "struct inotify_event",
+            -- shared memory
+            "mmap", "munmap", "shm_open", "shm_unlink", "ftruncate",
+            -- time
+            "clock_gettime",
+        },
+        -- Integer macros, evaluated by the C compiler and emitted as enum constants.
+        constants = {
+            "IN_ACCESS", "IN_MODIFY", "IN_ATTRIB", "IN_CLOSE_WRITE", "IN_CLOSE_NOWRITE",
+            "IN_OPEN", "IN_MOVED_FROM", "IN_MOVED_TO", "IN_CREATE", "IN_DELETE",
+            "IN_DELETE_SELF", "IN_MOVE_SELF", "IN_UNMOUNT", "IN_Q_OVERFLOW", "IN_IGNORED",
+            "IN_ISDIR", "IN_NONBLOCK", "IN_CLOEXEC",
+            "O_RDONLY", "O_RDWR", "O_CREAT", "O_EXCL", "O_NONBLOCK", "O_CLOEXEC",
+            "F_GETFL", "F_SETFL", "POLLIN", "POLLOUT", "POLLERR", "POLLHUP",
+            "SIGTERM", "SIGKILL", "SIGINT", "WNOHANG",
+            "S_IFMT", "S_IFDIR", "S_IFREG", "AT_FDCWD", "STATX_TYPE", "STATX_MODE",
+            "PROT_READ", "PROT_WRITE", "MAP_SHARED", "CLOCK_MONOTONIC",
         },
     },
 }
@@ -176,7 +211,9 @@ local function preprocess(binding, tmp)
     for _, proto in ipairs(binding.protocols.list) do
         local xml = protocol_dir(proto[1]) .. "/" .. proto[2]
         local header = tmp .. "/" .. xml:match("([^/]+)%.xml$") .. "-protocol.h"
-        run(string.format("wayland-scanner %s %s %s", binding.protocols.kind, sh_quote(xml), sh_quote(header)))
+        local f = assert(io.open(header, "w"))
+        f:write(wlscanner.header_from_file(xml, binding.protocols.side))
+        f:close()
         lines[#lines + 1] = '#include "' .. header .. '"'
     end
 
@@ -185,9 +222,42 @@ local function preprocess(binding, tmp)
     f:write(table.concat(lines, "\n"), "\n")
     f:close()
 
-    local cflags = run("pkg-config --cflags " .. table.concat(binding.packages, " ")):gsub("\n", " ")
+    local cflags = #binding.packages > 0
+        and run("pkg-config --cflags " .. table.concat(binding.packages, " ")):gsub("\n", " ")
+        or ""
     -- -I tmp: wlroots headers include the generated protocol headers by name.
     return run(string.format("gcc -E %s -I%s %s", cflags, sh_quote(tmp), sh_quote(src)))
+end
+
+-- Evaluate integer macros with the C compiler; returns parsed declarations for
+-- `enum { NAME = value, ... };`.
+local function constants_decls(binding, tmp)
+    if not binding.constants or #binding.constants == 0 then return {} end
+    local c = {}
+    for name, value in pairs(binding.defines) do c[#c + 1] = "#define " .. name .. " " .. value end
+    for _, h in ipairs(binding.headers) do c[#c + 1] = "#include " .. h end
+    c[#c + 1] = "#include <stdio.h>"
+    c[#c + 1] = "int main(void) {"
+    for _, name in ipairs(binding.constants) do
+        c[#c + 1] = string.format('printf("%s %%lld\\n", (long long)(%s));', name, name)
+    end
+    c[#c + 1] = "return 0; }"
+    local src = tmp .. "/" .. binding.name .. "-constants.c"
+    local f = assert(io.open(src, "w"))
+    f:write(table.concat(c, "\n"), "\n")
+    f:close()
+    run(string.format("gcc %s -o %s/constants", sh_quote(src), sh_quote(tmp)))
+    local out = run(tmp .. "/constants")
+
+    local entries = {}
+    for name, value in out:gmatch("(%S+) (%-?%d+)") do
+        local n = tonumber(value)
+        if n < -2147483648 or n > 2147483647 then
+            error(string.format("constant %s = %s doesn't fit an enum", name, value), 0)
+        end
+        entries[#entries + 1] = string.format("%s = %s", name, value)
+    end
+    return cdecl.parse('# 1 "<constants>"\nenum { ' .. table.concat(entries, ", ") .. " };\n")
 end
 
 local function matches_any(s, patterns)
@@ -223,7 +293,10 @@ local function select_decls(binding, decls)
     end
 
     local root_symbols = {}
-    for _, s in ipairs(binding.root_symbols) do root_symbols["id:" .. s] = true end
+    for _, s in ipairs(binding.root_symbols) do
+        local tag, name = s:match("^(%a+) ([%w_]+)$")
+        root_symbols[tag and (tag .. ":" .. name) or ("id:" .. s)] = true
+    end
 
     for i, d in ipairs(decls) do
         if d.kind ~= "static" then
@@ -305,6 +378,9 @@ local function main()
         for _, b in ipairs(bindings) do
             local decls = cdecl.parse(preprocess(b, tmp))
             selected[b.name] = select_decls(b, decls)
+            for _, d in ipairs(constants_decls(b, tmp)) do
+                table.insert(selected[b.name], d)
+            end
         end
 
         -- Hoist declarations every binding has (by identical text) into common.
@@ -373,6 +449,9 @@ local function main()
         for _, b in ipairs(bindings) do
             local versions = {}
             for _, p in ipairs(b.packages) do versions[#versions + 1] = p .. " " .. modversion(p) end
+            if #versions == 0 then
+                versions[1] = run("getconf GNU_LIBC_VERSION 2>/dev/null || echo libc"):gsub("%s+$", "")
+            end
             write_binding(OUT_DIR .. "/" .. b.name .. ".lua",
                 header_comment(b.name:gsub("^%l", string.upper) .. " binding.", versions),
                 'require("shared.ffi.common")', per_binding[b.name])

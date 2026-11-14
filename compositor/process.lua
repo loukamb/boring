@@ -1,19 +1,11 @@
 local ffi = require("ffi")
 local log = require("shared.log")
 
-ffi.cdef [[
-typedef int pid_t;
-pid_t fork(void);
-int execl(const char *path, const char *arg, ...);
-int kill(pid_t pid, int sig);
-pid_t waitpid(pid_t pid, int *status, int options);
-int chdir(const char *path);
-char *getcwd(char *buf, size_t size);
-]]
+require("shared.ffi.libc")
 
-local SIGTERM = 15
-local SIGKILL = 9
-local WNOHANG = 1
+local SIGTERM = ffi.C.SIGTERM
+local SIGKILL = ffi.C.SIGKILL
+local WNOHANG = ffi.C.WNOHANG
 
 local process = {}
 local Process = {}
@@ -47,7 +39,8 @@ local function build_command(cmd, args)
     return table.concat(parts, " ")
 end
 
-local function get_script_dir()
+--- Current working directory (where switch.lua runs from).
+function process.cwd()
     local buf = ffi.new("char[4096]")
     local result = ffi.C.getcwd(buf, 4096)
     if result ~= nil then
@@ -97,7 +90,7 @@ function Process:start_local()
         return false
     end
 
-    local script_dir = get_script_dir()
+    local script_dir = process.cwd()
     local args_str = ""
     for _, arg in ipairs(self._args) do
         if arg:find("[%s\"'\\]") then

@@ -3,13 +3,28 @@ local log = require("shared.log")
 
 local registry = {}
 
-local protocol_paths = {
-    "/usr/share/wayland/wayland.xml",
-    "/usr/share/wayland-protocols/stable",
-    "/usr/share/wayland-protocols/staging",
-    "/usr/share/wayland-protocols/unstable",
-    "/usr/share/wlr-protocols/unstable",
+-- Protocol XML locations, relative to each XDG data directory.
+local protocol_subpaths = {
+    "wayland/wayland.xml",
+    "wayland-protocols/stable",
+    "wayland-protocols/staging",
+    "wayland-protocols/unstable",
+    "wlr-protocols/unstable",
 }
+
+local function protocol_paths()
+    local paths = {}
+    local data_dirs = os.getenv("XDG_DATA_DIRS")
+    if not data_dirs or data_dirs == "" then
+        data_dirs = "/usr/local/share:/usr/share"
+    end
+    for dir in data_dirs:gmatch("[^:]+") do
+        for _, sub in ipairs(protocol_subpaths) do
+            paths[#paths + 1] = dir .. "/" .. sub
+        end
+    end
+    return paths
+end
 
 local discovered_protocols = {}
 local parsed_protocols = {}
@@ -30,7 +45,7 @@ end
 
 function registry.discover()
     discovered_protocols = {}
-    for _, path in ipairs(protocol_paths) do
+    for _, path in ipairs(protocol_paths()) do
         local f = io.open(path, "r")
         if f then
             f:close()

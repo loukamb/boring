@@ -28,7 +28,8 @@ end
 function protocol.parse(text)
     local result = {
         name = nil,
-        interfaces = {},
+        interfaces = {},     -- name -> interface
+        interface_list = {}, -- interfaces in document order
     }
 
     local stack = {}
@@ -52,7 +53,8 @@ function protocol.parse(text)
                     version = tonumber(attrs.version) or 1,
                     requests = {},
                     events = {},
-                    enums = {},
+                    enums = {},     -- name -> { entry name -> value }
+                    enum_list = {}, -- { name, bitfield, entries = { {name, value}... } } in order
                 }
                 request_opcode = 0
                 event_opcode = 0
@@ -86,6 +88,7 @@ function protocol.parse(text)
                     name = attrs.name,
                     bitfield = attrs.bitfield == "true",
                     entries = {},
+                    ordered = {},
                 }
             elseif tag == "entry" and current_enum then
                 local value = attrs.value
@@ -97,6 +100,7 @@ function protocol.parse(text)
                     end
                 end
                 current_enum.entries[attrs.name] = value
+                table.insert(current_enum.ordered, { name = attrs.name, value = value })
             end
         end,
 
@@ -105,6 +109,7 @@ function protocol.parse(text)
 
             if tag == "interface" and current_interface then
                 result.interfaces[current_interface.name] = current_interface
+                table.insert(result.interface_list, current_interface)
                 current_interface = nil
             elseif tag == "request" and current_message and current_request_list then
                 current_message.signature = build_signature(current_message.args)
@@ -124,6 +129,11 @@ function protocol.parse(text)
                 current_event_list = nil
             elseif tag == "enum" and current_enum and current_interface then
                 current_interface.enums[current_enum.name] = current_enum.entries
+                table.insert(current_interface.enum_list, {
+                    name = current_enum.name,
+                    bitfield = current_enum.bitfield,
+                    entries = current_enum.ordered,
+                })
                 current_enum = nil
             end
         end,

@@ -17,15 +17,12 @@ typedef unsigned long int __dev_t;
 typedef unsigned int __uid_t;
 typedef unsigned int __gid_t;
 typedef long int __off64_t;
-typedef int __clockid_t;
-typedef __time_t time_t;
-typedef __clockid_t clockid_t;
-typedef __pid_t pid_t;
-extern int clock_gettime(clockid_t __clock_id, struct timespec *__tp);
+typedef __dev_t dev_t;
 typedef __gid_t gid_t;
 typedef __uid_t uid_t;
 typedef __off_t off_t;
-typedef __dev_t dev_t;
+typedef __pid_t pid_t;
+typedef __time_t time_t;
 enum {
     WL_EVENT_READABLE = 0x01,
     WL_EVENT_WRITABLE = 0x02,
@@ -4113,8 +4110,8 @@ struct xdg_popup_interface {
     void (*grab)(struct wl_client *client, struct wl_resource *resource, struct wl_resource *seat, uint32_t serial);
     void (*reposition)(struct wl_client *client, struct wl_resource *resource, struct wl_resource *positioner, uint32_t token);
 };
-struct wp_cursor_shape_device_v1;
 struct wp_cursor_shape_manager_v1;
+struct wp_cursor_shape_device_v1;
 struct zwp_tablet_tool_v2;
 extern const struct wl_interface wp_cursor_shape_manager_v1_interface;
 extern const struct wl_interface wp_cursor_shape_device_v1_interface;
@@ -4123,16 +4120,22 @@ struct wp_cursor_shape_manager_v1_interface {
     void (*get_pointer)(struct wl_client *client, struct wl_resource *resource, uint32_t cursor_shape_device, struct wl_resource *pointer);
     void (*get_tablet_tool_v2)(struct wl_client *client, struct wl_resource *resource, uint32_t cursor_shape_device, struct wl_resource *tablet_tool);
 };
+enum wp_cursor_shape_device_v1_error {
+    WP_CURSOR_SHAPE_DEVICE_V1_ERROR_INVALID_SHAPE = 1,
+};
 struct wp_cursor_shape_device_v1_interface {
     void (*destroy)(struct wl_client *client, struct wl_resource *resource);
     void (*set_shape)(struct wl_client *client, struct wl_resource *resource, uint32_t serial, uint32_t shape);
 };
-struct zwp_confined_pointer_v1;
-struct zwp_locked_pointer_v1;
 struct zwp_pointer_constraints_v1;
+struct zwp_locked_pointer_v1;
+struct zwp_confined_pointer_v1;
 extern const struct wl_interface zwp_pointer_constraints_v1_interface;
 extern const struct wl_interface zwp_locked_pointer_v1_interface;
 extern const struct wl_interface zwp_confined_pointer_v1_interface;
+enum zwp_pointer_constraints_v1_error {
+    ZWP_POINTER_CONSTRAINTS_V1_ERROR_ALREADY_CONSTRAINED = 1,
+};
 struct zwp_pointer_constraints_v1_interface {
     void (*destroy)(struct wl_client *client, struct wl_resource *resource);
     void (*lock_pointer)(struct wl_client *client, struct wl_resource *resource, uint32_t id, struct wl_resource *surface, struct wl_resource *pointer, struct wl_resource *region, uint32_t lifetime);

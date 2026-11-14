@@ -8,14 +8,7 @@ local ffi = require("ffi")
 require("shared.ffi.common")
 
 ffi.cdef [[
-typedef unsigned int __mode_t;
-extern int close(int __fd);
-extern int ftruncate(int __fd, __off_t __length);
-typedef __mode_t mode_t;
-extern void *mmap(void *__addr, size_t __len, int __prot, int __flags, int __fd, __off_t __offset);
-extern int munmap(void *__addr, size_t __len);
-extern int shm_open(const char *__name, int __oflag, mode_t __mode);
-extern int shm_unlink(const char *__name);
+struct timespec;
 struct wl_proxy;
 struct wl_event_queue;
 void wl_event_queue_destroy(struct wl_event_queue *queue);
@@ -167,77 +160,17 @@ struct zwlr_layer_surface_v1_listener {
     void (*configure)(void *data, struct zwlr_layer_surface_v1 *zwlr_layer_surface_v1, uint32_t serial, uint32_t width, uint32_t height);
     void (*closed)(void *data, struct zwlr_layer_surface_v1 *zwlr_layer_surface_v1);
 };
-enum xdg_wm_base_error {
-    XDG_WM_BASE_ERROR_ROLE = 0,
-    XDG_WM_BASE_ERROR_DEFUNCT_SURFACES = 1,
-    XDG_WM_BASE_ERROR_NOT_THE_TOPMOST_POPUP = 2,
-    XDG_WM_BASE_ERROR_INVALID_POPUP_PARENT = 3,
-    XDG_WM_BASE_ERROR_INVALID_SURFACE_STATE = 4,
-    XDG_WM_BASE_ERROR_INVALID_POSITIONER = 5,
-    XDG_WM_BASE_ERROR_UNRESPONSIVE = 6,
-};
 struct xdg_wm_base_listener {
     void (*ping)(void *data, struct xdg_wm_base *xdg_wm_base, uint32_t serial);
 };
-enum xdg_positioner_error {
-    XDG_POSITIONER_ERROR_INVALID_INPUT = 0,
-};
-enum xdg_surface_error {
-    XDG_SURFACE_ERROR_NOT_CONSTRUCTED = 1,
-    XDG_SURFACE_ERROR_ALREADY_CONSTRUCTED = 2,
-    XDG_SURFACE_ERROR_UNCONFIGURED_BUFFER = 3,
-    XDG_SURFACE_ERROR_INVALID_SERIAL = 4,
-    XDG_SURFACE_ERROR_INVALID_SIZE = 5,
-    XDG_SURFACE_ERROR_DEFUNCT_ROLE_OBJECT = 6,
-};
 struct xdg_surface_listener {
     void (*configure)(void *data, struct xdg_surface *xdg_surface, uint32_t serial);
-};
-enum xdg_toplevel_error {
-    XDG_TOPLEVEL_ERROR_INVALID_RESIZE_EDGE = 0,
-    XDG_TOPLEVEL_ERROR_INVALID_PARENT = 1,
-    XDG_TOPLEVEL_ERROR_INVALID_SIZE = 2,
-};
-enum xdg_toplevel_resize_edge {
-    XDG_TOPLEVEL_RESIZE_EDGE_NONE = 0,
-    XDG_TOPLEVEL_RESIZE_EDGE_TOP = 1,
-    XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM = 2,
-    XDG_TOPLEVEL_RESIZE_EDGE_LEFT = 4,
-    XDG_TOPLEVEL_RESIZE_EDGE_TOP_LEFT = 5,
-    XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM_LEFT = 6,
-    XDG_TOPLEVEL_RESIZE_EDGE_RIGHT = 8,
-    XDG_TOPLEVEL_RESIZE_EDGE_TOP_RIGHT = 9,
-    XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM_RIGHT = 10,
-};
-enum xdg_toplevel_state {
-    XDG_TOPLEVEL_STATE_MAXIMIZED = 1,
-    XDG_TOPLEVEL_STATE_FULLSCREEN = 2,
-    XDG_TOPLEVEL_STATE_RESIZING = 3,
-    XDG_TOPLEVEL_STATE_ACTIVATED = 4,
-    XDG_TOPLEVEL_STATE_TILED_LEFT = 5,
-    XDG_TOPLEVEL_STATE_TILED_RIGHT = 6,
-    XDG_TOPLEVEL_STATE_TILED_TOP = 7,
-    XDG_TOPLEVEL_STATE_TILED_BOTTOM = 8,
-    XDG_TOPLEVEL_STATE_SUSPENDED = 9,
-    XDG_TOPLEVEL_STATE_CONSTRAINED_LEFT = 10,
-    XDG_TOPLEVEL_STATE_CONSTRAINED_RIGHT = 11,
-    XDG_TOPLEVEL_STATE_CONSTRAINED_TOP = 12,
-    XDG_TOPLEVEL_STATE_CONSTRAINED_BOTTOM = 13,
-};
-enum xdg_toplevel_wm_capabilities {
-    XDG_TOPLEVEL_WM_CAPABILITIES_WINDOW_MENU = 1,
-    XDG_TOPLEVEL_WM_CAPABILITIES_MAXIMIZE = 2,
-    XDG_TOPLEVEL_WM_CAPABILITIES_FULLSCREEN = 3,
-    XDG_TOPLEVEL_WM_CAPABILITIES_MINIMIZE = 4,
 };
 struct xdg_toplevel_listener {
     void (*configure)(void *data, struct xdg_toplevel *xdg_toplevel, int32_t width, int32_t height, struct wl_array *states);
     void (*close)(void *data, struct xdg_toplevel *xdg_toplevel);
     void (*configure_bounds)(void *data, struct xdg_toplevel *xdg_toplevel, int32_t width, int32_t height);
     void (*wm_capabilities)(void *data, struct xdg_toplevel *xdg_toplevel, struct wl_array *capabilities);
-};
-enum xdg_popup_error {
-    XDG_POPUP_ERROR_INVALID_GRAB = 0,
 };
 struct xdg_popup_listener {
     void (*configure)(void *data, struct xdg_popup *xdg_popup, int32_t x, int32_t y, int32_t width, int32_t height);

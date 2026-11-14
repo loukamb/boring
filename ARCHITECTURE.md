@@ -82,13 +82,14 @@ loads shared libraries.
   by soname (`libwlroots-0.20.so`, `libwayland-server.so.0`, …). No gcc,
   headers, pkg-config or wayland-scanner needed to run boring.
 
-**Next:** protocol declarations still come from wayland-scanner headers at
-generation time, and protocol enums are typed by hand in places. Since we
-already parse protocol XML in Lua (`shared/wayland/protocol.lua`), the
-generator should emit interface externs, listener structs and enums from the
-XML directly. Some modules (`shared/watch.lua`, `compositor/process.lua`) still
-carry hand-written libc cdefs, including arch-dependent structs like
-`struct stat`; those move into the generator too.
+- Protocol headers are produced from the XML by
+  [`tools/wlscanner.lua`](tools/wlscanner.lua) (reusing the runtime protocol
+  parser), so generation doesn't need wayland-scanner either.
+- [`shared/ffi/libc.lua`](shared/ffi/libc.lua) holds every libc function boring
+  calls, restricted to arch-independent types (`statx`, not `stat`), plus C
+  macro constants (`IN_*`, `O_*`, `SIG*`, …) evaluated by the compiler at
+  generation time and exposed as `ffi.C.NAME`. libvips (`shared/image.lua`) is
+  still declared by hand: it's a handful of functions on opaque pointers.
 
 ### Listeners
 
@@ -106,9 +107,9 @@ destroying a listener is O(1), and the number of listeners is unbounded.
 Each step is its own commit (or a small series), with `scripts/vm test` green and
 a smoke test in the VM display.
 
-1. ~~**FFI generator + committed bindings.**~~ Done: `shared/clib.lua` is gone
-   and the runtime no longer shells out to gcc. Remaining: protocols from XML,
-   hand-written libc cdefs.
+1. ~~**FFI generator + committed bindings.**~~ Done: `shared/clib.lua` is gone,
+   the runtime no longer shells out to gcc, protocols come from XML, and libc
+   declarations are generated.
 2. **`shared/wl`:** listener trampoline, `scope`, wl_list iteration, metatypes.
    Delete `shared/emitter.lua`/`events.lua` duplication and generalize `hook`.
 3. **Core services** (`compositor/`): split by protocol and responsibility, kill

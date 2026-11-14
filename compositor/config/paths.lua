@@ -1,20 +1,14 @@
 -- compositor/config/paths.lua
 -- Path discovery utilities for config and plugins
 
-local ffi = require("ffi")
-
-ffi.cdef[[
-    char *getenv(const char *name);
-]]
-
 local paths = {}
 
 ---Get home directory
 ---@return string
 function paths.home()
-    local home = ffi.C.getenv("HOME")
-    if home ~= nil then
-        return ffi.string(home)
+    local home = os.getenv("HOME")
+    if home then
+        return home
     end
     return "."
 end
@@ -22,9 +16,9 @@ end
 ---Get XDG config home
 ---@return string
 function paths.xdg_config_home()
-    local xdg = ffi.C.getenv("XDG_CONFIG_HOME")
-    if xdg ~= nil then
-        return ffi.string(xdg)
+    local xdg = os.getenv("XDG_CONFIG_HOME")
+    if xdg then
+        return xdg
     end
     return paths.home() .. "/.config"
 end
