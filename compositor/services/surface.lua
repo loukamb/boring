@@ -638,10 +638,31 @@ local function server_new_toplevel_decoration(listener, data)
         return
     end
 
-    wl.roots.xdg_toplevel_decoration_v1_set_mode(
-        decoration,
-        wl.WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE
-    )
+    local function apply_mode()
+        wl.roots.xdg_toplevel_decoration_v1_set_mode(
+            decoration,
+            wl.WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE
+        )
+    end
+
+    -- set_mode schedules a configure, which wlroots only allows once the
+    -- toplevel has done its initial commit.
+    local base = decoration.toplevel.base
+    if base.initialized then
+        apply_mode()
+        return
+    end
+
+    local scope = Scope.new("xdg-decoration")
+    scope:listen(base.surface.events.commit, function()
+        if base.initial_commit then
+            apply_mode()
+            scope:close()
+        end
+    end)
+    scope:listen(decoration.events.destroy, function()
+        scope:close()
+    end)
 end
 
 --------------------------------------------------------------------------------

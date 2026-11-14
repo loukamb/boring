@@ -17,6 +17,7 @@ input.keyboard.new({
     shortcuts = {
         ["Alt+Return"] = actions.execute("xeyes"),
         ["Ctrl+Alt+Return"] = actions.execute("xeyes"),
+        ["Alt+t"] = actions.execute("foot"),
         ["Alt+q"] = actions.close,
         ["Alt+Shift+q"] = actions.exit,
         ["Ctrl+Alt+q"] = actions.exit,

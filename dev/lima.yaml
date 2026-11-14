@@ -1,0 +1,90 @@
+# Lima VM for developing boring on macOS (Apple Silicon or Intel).
+#
+# Managed by scripts/vm; you normally don't need to touch this file.
+# The repository mount is injected by scripts/vm so this file stays
+# machine-independent. See dev/README.md.
+
+minimumLimaVersion: 2.0.0
+
+base:
+- template:_images/fedora-44
+
+# Apple Virtualization.framework: virtiofs mounts and a native display window.
+vmType: vz
+cpus: 4
+memory: 4GiB
+# Sparse image: only blocks actually written use host disk (~3 GiB after provisioning).
+disk: 16GiB
+
+mountType: virtiofs
+# Propagate host-side file changes as inotify events (config hot-reload).
+mountInotify: true
+
+# A virtio-gpu framebuffer plus USB keyboard and absolute pointer. boring runs
+# on it through the DRM + libinput backends, like on real hardware.
+video:
+  display: vz
+
+containerd:
+  system: false
+  user: false
+
+provision:
+- mode: system
+  script: |
+    #!/bin/bash
+    set -eux -o pipefail
+
+    dnf install -y --setopt=install_weak_deps=False \
+      gcc make git pkgconf-pkg-config \
+      wayland-devel wayland-protocols-devel \
+      wlroots-devel libxkbcommon-devel pixman-devel libinput-devel \
+      vips openssl-devel glib2 \
+      seatd mesa-dri-drivers mesa-libEGL mesa-libgbm \
+      xorg-x11-server-Xwayland xeyes foot \
+      dejavu-sans-mono-fonts
+
+    # wlr-protocols isn't packaged on Fedora; the compositor expects the XML
+    # files under /usr/share/wlr-protocols.
+    if [ ! -d /usr/share/wlr-protocols ]; then
+      git clone --depth=1 https://gitlab.freedesktop.org/wlroots/wlr-protocols.git /usr/share/wlr-protocols
+    fi
+
+    # LuaJIT is a rolling release; build the tip of the v2.1 branch so we track
+    # the latest rather than whatever the distro last snapshotted.
+    if [ ! -x /usr/local/bin/luajit ]; then
+      src=$(mktemp -d)
+      git clone --depth=1 --branch=v2.1 https://luajit.org/git/luajit.git "$src" \
+        || git clone --depth=1 --branch=v2.1 https://github.com/LuaJIT/LuaJIT.git "$src"
+      make -C "$src" -j"$(nproc)" PREFIX=/usr/local
+      make -C "$src" install PREFIX=/usr/local
+      ln -sf "$(ls /usr/local/bin/luajit-2.1.* | head -1)" /usr/local/bin/luajit
+      rm -rf "$src"
+    fi
+
+    # seatd hands out DRM/input devices to the compositor when it's started
+    # over SSH, i.e. without a logind session on seat0.
+    systemctl enable --now seatd
+- mode: user
+  script: |
+    #!/bin/bash
+    set -eux -o pipefail
+    sudo usermod -aG video,input "$USER"
+    getent group seat >/dev/null && sudo usermod -aG seat "$USER" || true
+
+probes:
+- description: boring dependencies installed
+  script: |
+    #!/bin/bash
+    set -eux -o pipefail
+    if ! timeout 60s bash -c "until command -v /usr/local/bin/luajit && pkg-config --exists wlroots-0.20; do sleep 3; done"; then
+      echo >&2 "boring dependencies are not installed yet"
+      exit 1
+    fi
+  hint: See /var/log/cloud-init-output.log in the guest.
+
+message: |
+  boring dev VM is ready. From the repository on the host:
+    scripts/vm run      # launch the compositor in the VM display window
+    scripts/vm test     # run the test suite inside the VM
+    scripts/vm shell    # shell in the VM, at the repository

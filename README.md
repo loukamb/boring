@@ -37,43 +37,22 @@ To get started with `boring`, you need the following dependencies installed:
 
 Some additional dependencies may be needed depending on the plugins you choose to use. The default plugins depend on `xwayland`, which requires `xorg-server` and `libxcb`, as well as `libvips` for the wallpaper and screenshot plugins.
 
-On Debian 13 hosts, use the provided Arch container for development if you want
-the current wlroots target:
+To try the compositor inside your current Wayland session, run it nested with
+wlroots' Wayland backend; it opens as a regular window on your host compositor:
 
 ```bash
-podman build -t boring-dev -f Containerfile .
-podman run --rm -it -v "$PWD:/workspace" -w /workspace boring-dev
+WLR_BACKENDS=wayland luajit switch.lua compositor --config=configs/nested-wayland.lua
 ```
 
-To try the compositor from the container in your current Wayland session, run it
-nested through the host Wayland socket:
-
-```bash
-scripts/run-wayland-container
-```
-
-The helper rebuilds the development image, then uses wlroots' Wayland backend and
-should open `boring` as a regular window on your host compositor. It defaults to
-the software `pixman` renderer so it does not need GPU device passthrough. By
-default it uses
-`configs/nested-wayland.lua`, which avoids host-reserved Super-key shortcuts,
+`configs/nested-wayland.lua` avoids host-reserved Super-key shortcuts,
 launches `xeyes` once on startup, and binds:
 
 - `Alt+Return` or `Ctrl+Alt+Return`: launch `xeyes`
+- `Alt+t`: launch `foot`
 - `Alt+q`: close the focused window
 - `Alt+Shift+q` or `Ctrl+Alt+q`: exit the compositor
 
-To try GPU rendering instead:
-
-```bash
-BORING_USE_DRI=1 scripts/run-wayland-container
-```
-
-Pass a different config with:
-
-```bash
-scripts/run-wayland-container -- --config=default.lua
-```
+On macOS, use the development VM instead; see [`dev/README.md`](/dev/README.md).
 
 To download the compositor, clone the repository, then use `switch.lua` to launch the compositor program:
 

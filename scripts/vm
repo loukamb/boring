@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# Manage the boring development VM (Lima, macOS host). See dev/README.md.
+set -euo pipefail
+
+repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+vm="${BORING_VM:-boring}"
+
+usage() {
+    cat <<'USAGE'
+Usage: scripts/vm <command> [args...]
+
+Lifecycle:
+  up                 Create (first time) and start the VM. Opens its display window.
+  down               Stop the VM.
+  destroy            Delete the VM and its disk.
+  status             Show the VM state.
+
+Development (all run inside the VM, in the repository directory):
+  run [args...]      Start the compositor on the VM display (DRM + libinput).
+                     Defaults to --config=configs/nested-wayland.lua (Alt-based binds,
+                     so macOS doesn't swallow Cmd shortcuts). Ctrl-C to stop.
+  test [args...]     luajit tests/run.lua [args...]   (default: --suite all)
+  ffi-clean          Drop the generated FFI cdef cache.
+  shell              Interactive shell.
+  exec <cmd...>      Run a command.
+
+Environment:
+  BORING_VM=boring      Lima instance name.
+  WLR_RENDERER=pixman   Renderer for `run` (vz exposes a 2D-only virtio-gpu).
+USAGE
+}
+
+need_lima() {
+    command -v limactl >/dev/null || {
+        echo "limactl not found; install it with: brew install lima" >&2
+        exit 2
+    }
+}
+
+exists() { limactl list --quiet 2>/dev/null | grep -qx "$vm"; }
+running() { [[ "$(limactl list --format '{{.Status}}' "$vm" 2>/dev/null)" == "Running" ]]; }
+
+ensure_running() {
+    exists || { echo "VM '$vm' does not exist; run: scripts/vm up" >&2; exit 2; }
+    running || limactl start "$vm"
+}
+
+in_vm() {
+    ensure_running
+    limactl shell --workdir "$repo_dir" "$vm" -- "$@"
+}
+
+cmd="${1:-}"
+[[ -n "$cmd" ]] && shift
+
+case "$cmd" in
+    up)
+        need_lima
+        fresh=0
+        if ! exists; then
+            fresh=1
+            # Mount the checkout at the same path as on the host, so paths in
+            # logs and errors match what you see in your editor.
+            limactl create --name="$vm" --tty=false \
+                --set ".mounts = [{\"location\": \"$repo_dir\", \"mountPoint\": \"$repo_dir\", \"writable\": true}]" \
+                "$repo_dir/dev/lima.yaml"
+        fi
+        running || limactl start "$vm"
+        # Provisioning adds us to the video/input/seat groups after Lima's
+        # persistent SSH session already exists; reconnect to pick them up.
+        [[ "$fresh" == 1 ]] && limactl shell --reconnect "$vm" -- true
+        ;;
+    down) need_lima; limactl stop "$vm" ;;
+    destroy) need_lima; limactl delete --force "$vm" ;;
+    status) need_lima; limactl list "$vm" ;;
+    shell) need_lima; in_vm bash -l ;;
+    exec) need_lima; in_vm "$@" ;;
+    ffi-clean) need_lima; in_vm luajit switch.lua --ffi-cleanup ;;
+    test)
+        need_lima
+        [[ $# -eq 0 ]] && set -- --suite all
+        in_vm luajit tests/run.lua "$@"
+        ;;
+    run)
+        need_lima
+        has_config=0
+        for arg in "$@"; do
+            [[ "$arg" == --config || "$arg" == --config=* ]] && has_config=1
+        done
+        [[ "$has_config" == 0 ]] && set -- --config=configs/nested-wayland.lua "$@"
+        in_vm env \
+            LIBSEAT_BACKEND=seatd \
+            WLR_BACKENDS=drm,libinput \
+            WLR_RENDERER="${WLR_RENDERER:-pixman}" \
+            luajit switch.lua compositor "$@"
+        ;;
+    -h|--help|help|"") usage ;;
+    *) echo "unknown command: $cmd" >&2; usage >&2; exit 2 ;;
+esac

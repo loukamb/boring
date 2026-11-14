@@ -43,6 +43,13 @@ local skip_patterns = {
     "__m512",
     "__builtin_",
     "__REDIRECT",
+    -- aarch64: NEON/SVE vector-math declarations in glibc's <bits/math-vector.h>
+    "__SV",
+    "__sv_",
+    "__f32x",
+    "__f64x",
+    "__bf16",
+    "_Float16",
 }
 
 local function remove_balanced_parens(str, start_pos)
