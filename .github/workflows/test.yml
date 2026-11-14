@@ -23,7 +23,9 @@ jobs:
             wlr-protocols \
             wayland-protocols \
             libvips \
-            xorg-xwayland
+            xorg-xwayland \
+            libinput \
+            wayland
 
       - name: Run unit tests
         run: luajit tests/run.lua --suite unit --format tap
@@ -31,11 +33,12 @@ jobs:
       - name: Run service tests
         run: luajit tests/run.lua --suite service --format tap
 
-      - name: Generate Wayland FFI bindings
+      - name: Load committed FFI bindings
         run: |
-          luajit switch.lua --ffi-cleanup
-          BORING_DEBUG=1 luajit -e 'package.path="./?/init.lua;./?.lua;"..package.path; require("shared.wayland.server")'
-          BORING_DEBUG=1 luajit -e 'package.path="./?/init.lua;./?.lua;"..package.path; require("shared.wayland.client")'
+          luajit -e 'package.path="./?/init.lua;./?.lua;"..package.path; require("shared.wayland.server"); require("shared.wayland.client")'
+
+      - name: Check FFI struct layouts against the C compiler
+        run: luajit tools/ffi_check.lua
 
       - name: Run integration tests
         run: luajit tests/run.lua --suite integration --format tap

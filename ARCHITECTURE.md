@@ -58,30 +58,37 @@ use `shared/` the same way.
 
 ## FFI
 
-**Today:** on a cache miss, `shared/clib.lua` runs `gcc -E` over the wlroots,
-wayland and glibc headers at startup, then cleans the output with regex
-substitutions and an x86-oriented skip list. Users need gcc, `-devel` headers,
-pkg-config and wayland-scanner just to *run* boring. It broke on aarch64 (glibc
-NEON/SVE types), and the cache key doesn't cover the generator itself.
+Declarations are generated ahead of time and committed; the runtime only
+loads shared libraries.
 
-**Target:**
+- [`tools/ffi_gen.lua`](tools/ffi_gen.lua) runs at **development time**
+  (`scripts/vm ffi-gen`). It preprocesses the headers listed per binding,
+  parses the declarations with [`tools/cdecl.lua`](tools/cdecl.lua), and keeps
+  every declaration from the root headers (wlroots, wayland, xkbcommon,
+  libinput, generated protocol headers) plus a few named libc functions,
+  together with the types and constants they transitively need. System headers
+  contribute only what's referenced, so arch-specific glibc internals never
+  reach the output.
+- The result is written to [`shared/ffi/`](shared/ffi/): `server.lua`,
+  `client.lua`, and `common.lua` for declarations both need (so they can be
+  loaded into one process; LuaJIT refuses to redefine a struct or enum). The
+  files are **committed and reviewed.** A wlroots bump means rerunning the
+  generator and reading the diff.
+- [`tools/ffi_check.lua`](tools/ffi_check.lua) compiles a C program against the
+  real headers and compares `sizeof`/`offsetof` for the structs we touch with
+  LuaJIT's. CI runs it on x86_64, so bindings generated on aarch64 are checked
+  on another architecture on every push.
+- At runtime, [`shared/ffi/lib.lua`](shared/ffi/lib.lua) loads the libraries
+  by soname (`libwlroots-0.20.so`, `libwayland-server.so.0`, …). No gcc,
+  headers, pkg-config or wayland-scanner needed to run boring.
 
-- `tools/ffi-gen.lua` runs at **development time** (in the dev VM). It preprocesses
-  the headers, parses declarations into a small tree, and emits only what's
-  reachable from an allowlist of the functions we call (plus the structs, enums
-  and typedefs those need). The output is written to `shared/ffi/` as ordinary
-  Lua files containing `ffi.cdef[[ … ]]`, one per library, tagged with the
-  library version they were generated from.
-- These files are **committed and reviewed.** A wlroots bump means rerunning the
-  generator and reading the diff: struct layout changes show up there.
-  LuaJIT computes layouts itself, so one cdef works on every architecture.
-- **Protocols** come from the XML. We already parse protocol XML in Lua
-  (`shared/wayland/protocol.lua`); the generator emits interface externs, enums
-  and listener structs from it, so wayland-scanner goes away. Enums become plain
-  Lua constants generated from the XML instead of the hand-typed lists we have now.
-- **Runtime requirements shrink to the shared libraries** (`libwlroots-0.20.so`,
-  `libwayland-server.so.0`, `libxkbcommon.so.0`, …), loaded by soname, not by the
-  `-devel` `.so` symlink.
+**Next:** protocol declarations still come from wayland-scanner headers at
+generation time, and protocol enums are typed by hand in places. Since we
+already parse protocol XML in Lua (`shared/wayland/protocol.lua`), the
+generator should emit interface externs, listener structs and enums from the
+XML directly. Some modules (`shared/watch.lua`, `compositor/process.lua`) still
+carry hand-written libc cdefs, including arch-dependent structs like
+`struct stat`; those move into the generator too.
 
 ### Listeners
 
@@ -99,8 +106,9 @@ destroying a listener is O(1), and the number of listeners is unbounded.
 Each step is its own commit (or a small series), with `scripts/vm test` green and
 a smoke test in the VM display.
 
-1. **FFI generator + committed bindings.** Replace `shared/clib.lua`. The runtime
-   no longer shells out to gcc.
+1. ~~**FFI generator + committed bindings.**~~ Done: `shared/clib.lua` is gone
+   and the runtime no longer shells out to gcc. Remaining: protocols from XML,
+   hand-written libc cdefs.
 2. **`shared/wl`:** listener trampoline, `scope`, wl_list iteration, metatypes.
    Delete `shared/emitter.lua`/`events.lua` duplication and generalize `hook`.
 3. **Core services** (`compositor/`): split by protocol and responsibility, kill

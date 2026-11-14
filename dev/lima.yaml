@@ -9,21 +9,23 @@ minimumLimaVersion: 2.0.0
 base:
 - template:_images/fedora-44
 
-# Apple Virtualization.framework: virtiofs mounts and a native display window.
+# Apple Virtualization.framework: fast virtiofs mounts.
 vmType: vz
 cpus: 4
 memory: 4GiB
-# Sparse image: only blocks actually written use host disk (~3 GiB after provisioning).
+# Sparse image: only blocks actually written use host disk (~1.6 GiB provisioned).
 disk: 16GiB
 
 mountType: virtiofs
 # Propagate host-side file changes as inotify events (config hot-reload).
 mountInotify: true
 
-# A virtio-gpu framebuffer plus USB keyboard and absolute pointer. boring runs
-# on it through the DRM + libinput backends, like on real hardware.
+# Headless by default: boring runs on wlroots' headless backend and
+# `scripts/vm screenshot` shows what it renders. Create the VM with
+# BORING_VM_DISPLAY=vz to get a window (virtio-gpu + keyboard/pointer) and run
+# boring on DRM + libinput instead, like on real hardware.
 video:
-  display: vz
+  display: none
 
 containerd:
   system: false
@@ -39,9 +41,9 @@ provision:
       gcc make git pkgconf-pkg-config \
       wayland-devel wayland-protocols-devel \
       wlroots-devel libxkbcommon-devel pixman-devel libinput-devel \
-      vips openssl-devel glib2 \
+      vips glib2 \
       seatd mesa-dri-drivers mesa-libEGL mesa-libgbm \
-      xorg-x11-server-Xwayland xeyes foot \
+      xorg-x11-server-Xwayland xeyes foot grim \
       dejavu-sans-mono-fonts
 
     # wlr-protocols isn't packaged on Fedora; the compositor expects the XML
@@ -85,6 +87,7 @@ probes:
 
 message: |
   boring dev VM is ready. From the repository on the host:
-    scripts/vm run      # launch the compositor in the VM display window
+    scripts/vm run      # launch the compositor (headless)
+    scripts/vm screenshot  # capture what it renders
     scripts/vm test     # run the test suite inside the VM
     scripts/vm shell    # shell in the VM, at the repository

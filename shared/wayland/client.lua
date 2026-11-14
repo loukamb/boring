@@ -1,53 +1,17 @@
 -- shared/wayland/client.lua
--- Wayland client library using clib.lua builder
+-- Wayland client library
 
-local clib = require("shared.clib")
 local base = require("shared.wayland.base")
 local ffi = base.ffi
 
 --------------------------------------------------------------------------------
--- Build the wayland client library
+-- Load the wayland client library
 --------------------------------------------------------------------------------
 
-local lib = clib.new()
-    :cache("client")
-    :soname("wayland-client")
-    :package("wayland-client")
-    :include("<wayland-client.h>")
-    :include("<wayland-client-protocol.h>")
-    :include('"$DIR/wlr-layer-shell-unstable-v1-client-protocol.h"')
-    :include('"$DIR/xdg-shell-client-protocol.h"')
-    :variable("DIR", "$(mktemp -d)")
-    :shell('trap "rm -rf $DIR" EXIT')
-    :shell(
-        'wayland-scanner client-header /usr/share/wlr-protocols/unstable/wlr-layer-shell-unstable-v1.xml "$DIR/wlr-layer-shell-unstable-v1-client-protocol.h"')
-    :shell(
-        'wayland-scanner client-header /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml "$DIR/xdg-shell-client-protocol.h"')
-    :cdef([[
-typedef int pid_t;
-pid_t fork(void);
-pid_t getpid(void);
-int execl(const char *path, const char *arg, ...);
-int setenv(const char *name, const char *value, int overwrite);
-
-void *mmap(void *addr, size_t length, int prot, int flags, int fd, long offset);
-int munmap(void *addr, size_t length);
-int close(int fd);
-
-int shm_open(const char *name, int oflag, unsigned int mode);
-int shm_unlink(const char *name);
-int ftruncate(int fd, long length);
-
-struct zwlr_layer_shell_v1;
-struct zwlr_layer_surface_v1;
-
-struct zwlr_layer_surface_v1_listener {
-    void (*configure)(void *data, struct zwlr_layer_surface_v1 *surface,
-                      uint32_t serial, uint32_t width, uint32_t height);
-    void (*closed)(void *data, struct zwlr_layer_surface_v1 *surface);
-};
-]])
-    :build()
+-- Declarations are generated ahead of time (tools/ffi_gen.lua); at runtime we
+-- only load the library.
+require("shared.ffi.client")
+local lib = require("shared.ffi.lib").open({ "libwayland-client.so.0" })
 
 
 

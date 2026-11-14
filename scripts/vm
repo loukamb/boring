@@ -10,23 +10,28 @@ usage() {
 Usage: scripts/vm <command> [args...]
 
 Lifecycle:
-  up                 Create (first time) and start the VM. Opens its display window.
+  up                 Create (first time) and start the VM.
   down               Stop the VM.
   destroy            Delete the VM and its disk.
   status             Show the VM state.
 
 Development (all run inside the VM, in the repository directory):
-  run [args...]      Start the compositor on the VM display (DRM + libinput).
-                     Defaults to --config=configs/nested-wayland.lua (Alt-based binds,
-                     so macOS doesn't swallow Cmd shortcuts). Ctrl-C to stop.
+  run [args...]      Start the compositor. Ctrl-C to stop. Headless unless the
+                     VM has a display (see BORING_VM_DISPLAY). Defaults to
+                     --config=configs/nested-wayland.lua.
+  kill               Stop a compositor started by `run`.
+  screenshot [file]  Capture the running compositor's output (default: vm-screenshot.png).
+  client <cmd...>    Run a Wayland client against the running compositor.
   test [args...]     luajit tests/run.lua [args...]   (default: --suite all)
-  ffi-clean          Drop the generated FFI cdef cache.
+  ffi-gen            Regenerate shared/ffi from the VM's headers and check layouts.
   shell              Interactive shell.
   exec <cmd...>      Run a command.
 
 Environment:
-  BORING_VM=boring      Lima instance name.
-  WLR_RENDERER=pixman   Renderer for `run` (vz exposes a 2D-only virtio-gpu).
+  BORING_VM=boring        Lima instance name.
+  BORING_VM_DISPLAY=vz    On `up` (creation only): give the VM a display window, and
+                          `run` uses DRM + libinput on it instead of headless.
+  WLR_RENDERER=pixman     Renderer for `run`.
 USAGE
 }
 
@@ -52,10 +57,10 @@ in_vm() {
 
 cmd="${1:-}"
 [[ -n "$cmd" ]] && shift
+[[ "$cmd" != "" && "$cmd" != help && "$cmd" != -h && "$cmd" != --help ]] && need_lima
 
 case "$cmd" in
     up)
-        need_lima
         fresh=0
         if ! exists; then
             fresh=1
@@ -63,6 +68,7 @@ case "$cmd" in
             # logs and errors match what you see in your editor.
             limactl create --name="$vm" --tty=false \
                 --set ".mounts = [{\"location\": \"$repo_dir\", \"mountPoint\": \"$repo_dir\", \"writable\": true}]" \
+                --set ".video.display = \"${BORING_VM_DISPLAY:-none}\"" \
                 "$repo_dir/dev/lima.yaml"
         fi
         running || limactl start "$vm"
@@ -70,29 +76,40 @@ case "$cmd" in
         # persistent SSH session already exists; reconnect to pick them up.
         [[ "$fresh" == 1 ]] && limactl shell --reconnect "$vm" -- true
         ;;
-    down) need_lima; limactl stop "$vm" ;;
-    destroy) need_lima; limactl delete --force "$vm" ;;
-    status) need_lima; limactl list "$vm" ;;
-    shell) need_lima; in_vm bash -l ;;
-    exec) need_lima; in_vm "$@" ;;
-    ffi-clean) need_lima; in_vm luajit switch.lua --ffi-cleanup ;;
+    down) limactl stop "$vm" ;;
+    destroy) limactl delete --force "$vm" ;;
+    status) limactl list "$vm" ;;
+    shell) in_vm bash -l ;;
+    exec) in_vm "$@" ;;
+    client) in_vm env WAYLAND_DISPLAY=wayland-0 "$@" ;;
+    ffi-gen) in_vm sh -c 'luajit tools/ffi_gen.lua && luajit tools/ffi_check.lua' ;;
     test)
-        need_lima
         [[ $# -eq 0 ]] && set -- --suite all
         in_vm luajit tests/run.lua "$@"
         ;;
     run)
-        need_lima
         has_config=0
         for arg in "$@"; do
             [[ "$arg" == --config || "$arg" == --config=* ]] && has_config=1
         done
         [[ "$has_config" == 0 ]] && set -- --config=configs/nested-wayland.lua "$@"
-        in_vm env \
-            LIBSEAT_BACKEND=seatd \
-            WLR_BACKENDS=drm,libinput \
-            WLR_RENDERER="${WLR_RENDERER:-pixman}" \
-            luajit switch.lua compositor "$@"
+        # A VM created with a display has a DRM card; otherwise go headless.
+        in_vm sh -c '
+            if [ -e /dev/dri/card0 ]; then
+                export LIBSEAT_BACKEND=seatd WLR_BACKENDS=drm,libinput
+            else
+                export WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1
+            fi
+            export WLR_RENDERER="$0"
+            exec luajit switch.lua compositor "$@"
+        ' "${WLR_RENDERER:-pixman}" "$@"
+        ;;
+    kill) in_vm pkill -f "switch.lua compositor" || echo "no compositor running" ;;
+    screenshot)
+        out="${1:-vm-screenshot.png}"
+        in_vm env WAYLAND_DISPLAY=wayland-0 grim /tmp/boring-screenshot.png
+        limactl copy "$vm:/tmp/boring-screenshot.png" "$out"
+        echo "$out"
         ;;
     -h|--help|help|"") usage ;;
     *) echo "unknown command: $cmd" >&2; usage >&2; exit 2 ;;

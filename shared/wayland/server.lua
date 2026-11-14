@@ -1,203 +1,23 @@
 -- shared/wayland/server.lua
--- Wayland server library using clib.lua builder
+-- Wayland server library: wlroots, wayland-server, xkbcommon, libinput
 
-local clib = require("shared.clib")
 local base = require("shared.wayland.base")
 local log = require("shared.log")
 local ffi = base.ffi
 
 --------------------------------------------------------------------------------
--- Build the wayland server library
+-- Load the wayland server library
 --------------------------------------------------------------------------------
 
-local lib = clib.new()
-    :cache("server")
-    :soname("wayland-server")
-    :soname("wlroots-0.20")
-    :soname("xkbcommon")
-    :package("pixman-1", "wlroots-0.20", "wayland-server", "xkbcommon")
-    :define("WLR_USE_UNSTABLE", "")
-    :include("<wlr/util/log.h>")
-    :include("<time.h>")
-    :include("<wayland-server-core.h>")
-    :include("<wlr/backend.h>")
-    :include("<wlr/render/allocator.h>")
-    :include("<wlr/render/wlr_renderer.h>")
-    :include("<wlr/types/wlr_buffer.h>")
-    :include("<wlr/interfaces/wlr_buffer.h>")
-    :include("<wlr/types/wlr_cursor.h>")
-    :include("<wlr/types/wlr_compositor.h>")
-    :include("<wlr/types/wlr_data_device.h>")
-    :include("<wlr/types/wlr_input_device.h>")
-    :include("<wlr/types/wlr_keyboard.h>")
-    :include("<wlr/types/wlr_output.h>")
-    :include("<wlr/types/wlr_output_layout.h>")
-    :include("<wlr/types/wlr_pointer.h>")
-    :include("<wlr/types/wlr_scene.h>")
-    :include("<wlr/types/wlr_seat.h>")
-    :include("<wlr/types/wlr_subcompositor.h>")
-    :include("<wlr/types/wlr_xcursor_manager.h>")
-    :include("<wlr/types/wlr_xdg_shell.h>")
-    :include("<wlr/types/wlr_layer_shell_v1.h>")
-    :include("<wlr/types/wlr_foreign_toplevel_management_v1.h>")
-    :include("<wlr/types/wlr_fractional_scale_v1.h>")
-    :include("<wlr/types/wlr_viewporter.h>")
-    :include("<wlr/types/wlr_xdg_output_v1.h>")
-    :include("<wlr/types/wlr_gamma_control_v1.h>")
-    :include("<wlr/types/wlr_screencopy_v1.h>")
-    :include("<wlr/types/wlr_single_pixel_buffer_v1.h>")
-    :include("<wlr/types/wlr_xdg_activation_v1.h>")
-    :include("<wlr/types/wlr_idle_inhibit_v1.h>")
-    :include("<wlr/types/wlr_xdg_decoration_v1.h>")
-    :include("<wlr/types/wlr_cursor_shape_v1.h>")
-    :include("<wlr/types/wlr_pointer_constraints_v1.h>")
-    :include("<wlr/types/wlr_relative_pointer_v1.h>")
-    :include("<wlr/render/egl.h>")
-    :include("<wlr/render/gles2.h>")
-    :include("<wlr/xwayland.h>")
-    :include("<xkbcommon/xkbcommon.h>")
-    :include('"$DIR/xdg-shell-protocol.h"')
-    :include('"$DIR/wlr-layer-shell-unstable-v1-protocol.h"')
-    :include('"$DIR/cursor-shape-v1-protocol.h"')
-    :include('"$DIR/pointer-constraints-unstable-v1-protocol.h"')
-    :include('"$DIR/xdg-decoration-unstable-v1-protocol.h"')
-    :include('"$DIR/relative-pointer-unstable-v1-protocol.h"')
-    :variable("DIR", "$(mktemp -d)")
-    :shell('trap "rm -rf $DIR" EXIT')
-    :shell(
-        'wayland-scanner server-header /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml "$DIR/xdg-shell-protocol.h"')
-    :shell(
-        'wayland-scanner server-header /usr/share/wlr-protocols/unstable/wlr-layer-shell-unstable-v1.xml "$DIR/wlr-layer-shell-unstable-v1-protocol.h"')
-    :shell(
-        'wayland-scanner server-header /usr/share/wayland-protocols/staging/cursor-shape/cursor-shape-v1.xml "$DIR/cursor-shape-v1-protocol.h"')
-    :shell(
-        'wayland-scanner server-header /usr/share/wayland-protocols/unstable/pointer-constraints/pointer-constraints-unstable-v1.xml "$DIR/pointer-constraints-unstable-v1-protocol.h"')
-    :shell(
-        'wayland-scanner server-header /usr/share/wayland-protocols/unstable/xdg-decoration/xdg-decoration-unstable-v1.xml "$DIR/xdg-decoration-unstable-v1-protocol.h"')
-    :shell(
-        'wayland-scanner server-header /usr/share/wayland-protocols/unstable/relative-pointer/relative-pointer-unstable-v1.xml "$DIR/relative-pointer-unstable-v1-protocol.h"')
-    :cdef([[
-typedef int pid_t;
-pid_t fork(void);
-int execl(const char *path, const char *arg, ...);
-int setenv(const char *name, const char *value, int overwrite);
-
-struct libinput_device;
-struct libinput_device *wlr_libinput_get_device_handle(struct wlr_input_device *dev);
-bool wlr_backend_is_libinput(struct wlr_backend *backend);
-
-struct wlr_egl;
-bool wlr_renderer_is_gles2(struct wlr_renderer *renderer);
-struct wlr_egl *wlr_gles2_renderer_get_egl(struct wlr_renderer *renderer);
-
-typedef void *EGLDisplay;
-typedef void *EGLContext;
-
-EGLDisplay wlr_egl_get_display(struct wlr_egl *egl);
-EGLContext wlr_egl_get_context(struct wlr_egl *egl);
-
-bool wlr_texture_is_gles2(struct wlr_texture *texture);
-void wlr_gles2_texture_get_attribs(struct wlr_texture *texture, struct wlr_gles2_texture_attribs *attribs);
-
-struct wlr_buffer;
-struct wlr_gles2_buffer {
-    struct wlr_buffer *buffer;
-    struct wlr_renderer *renderer;
-};
-uint32_t wlr_gles2_renderer_get_current_fbo(struct wlr_renderer *renderer);
-uint32_t wlr_gles2_renderer_get_buffer_fbo(struct wlr_renderer *renderer, struct wlr_buffer *buffer);
-
-struct wlr_texture *wlr_texture_from_buffer(struct wlr_renderer *renderer, struct wlr_buffer *buffer);
-struct wlr_texture *wlr_texture_from_pixels(struct wlr_renderer *renderer,
-    uint32_t fmt, uint32_t stride, uint32_t width, uint32_t height, const void *data);
-void wlr_texture_destroy(struct wlr_texture *texture);
-
-struct wlr_scene_buffer *wlr_scene_buffer_create(struct wlr_scene_tree *parent, struct wlr_buffer *buffer);
-void wlr_scene_buffer_set_buffer(struct wlr_scene_buffer *scene_buffer, struct wlr_buffer *buffer);
-void wlr_scene_buffer_set_dest_size(struct wlr_scene_buffer *scene_buffer, int width, int height);
-void wlr_scene_buffer_set_source_box(struct wlr_scene_buffer *scene_buffer, const struct wlr_fbox *box);
-
-struct wlr_render_pass *wlr_output_begin_render_pass(struct wlr_output *output,
-    struct wlr_output_state *state, struct wlr_buffer_pass_options *render_options);
-bool wlr_render_pass_submit(struct wlr_render_pass *render_pass);
-
-void wlr_output_state_init(struct wlr_output_state *state);
-void wlr_output_state_finish(struct wlr_output_state *state);
-bool wlr_output_commit_state(struct wlr_output *output, const struct wlr_output_state *state);
-bool wlr_output_test_state(struct wlr_output *output, const struct wlr_output_state *state);
-
-enum libinput_config_tap_state {
-    LIBINPUT_CONFIG_TAP_DISABLED = 0,
-    LIBINPUT_CONFIG_TAP_ENABLED = 1
-};
-
-enum libinput_config_accel_profile {
-    LIBINPUT_CONFIG_ACCEL_PROFILE_NONE = 0,
-    LIBINPUT_CONFIG_ACCEL_PROFILE_FLAT = 1,
-    LIBINPUT_CONFIG_ACCEL_PROFILE_ADAPTIVE = 2
-};
-
-enum libinput_config_scroll_method {
-    LIBINPUT_CONFIG_SCROLL_NO_SCROLL = 0,
-    LIBINPUT_CONFIG_SCROLL_2FG = 1,
-    LIBINPUT_CONFIG_SCROLL_EDGE = 2,
-    LIBINPUT_CONFIG_SCROLL_ON_BUTTON_DOWN = 4
-};
-
-uint32_t libinput_device_config_tap_get_finger_count(struct libinput_device *device);
-int libinput_device_config_tap_set_enabled(struct libinput_device *device, enum libinput_config_tap_state enable);
-int libinput_device_config_accel_is_available(struct libinput_device *device);
-int libinput_device_config_accel_set_speed(struct libinput_device *device, double speed);
-int libinput_device_config_accel_set_profile(struct libinput_device *device, enum libinput_config_accel_profile profile);
-int libinput_device_config_scroll_has_natural_scroll(struct libinput_device *device);
-int libinput_device_config_scroll_set_natural_scroll_enabled(struct libinput_device *device, int enable);
-int libinput_device_config_left_handed_is_available(struct libinput_device *device);
-int libinput_device_config_left_handed_set(struct libinput_device *device, int left_handed);
-
-void wlr_output_state_set_scale(struct wlr_output_state *state, float scale);
-
-typedef void (*wlr_scene_buffer_iterator_func_t)(
-    struct wlr_scene_buffer *buffer, int sx, int sy, void *user_data);
-void wlr_scene_node_for_each_buffer(struct wlr_scene_node *node,
-    wlr_scene_buffer_iterator_func_t iterator, void *user_data);
-void wlr_scene_buffer_set_dest_size(struct wlr_scene_buffer *scene_buffer,
-    int width, int height);
-struct wlr_scene_tree *wlr_scene_tree_from_node(struct wlr_scene_node *node);
-
-void wlr_scene_subsurface_tree_set_clip(struct wlr_scene_node *node,
-    struct wlr_box *clip);
-
-// Phase 1 - Low Hanging Fruit
-struct wlr_cursor_shape_manager_v1;
-struct wlr_cursor_shape_manager_v1 *wlr_cursor_shape_manager_v1_create(
-    struct wl_display *display, uint32_t version);
-
-// Phase 2 - Easy protocols
-struct wlr_pointer_constraints_v1;
-struct wlr_pointer_constraints_v1 *wlr_pointer_constraints_v1_create(
-    struct wl_display *display);
-
-struct wlr_relative_pointer_manager_v1;
-struct wlr_relative_pointer_manager_v1 *wlr_relative_pointer_manager_v1_create(
-    struct wl_display *display);
-
-struct wlr_xdg_activation_v1;
-struct wlr_xdg_activation_v1 *wlr_xdg_activation_v1_create(
-    struct wl_display *display);
-
-struct wlr_idle_inhibit_manager_v1;
-struct wlr_idle_inhibit_manager_v1 *wlr_idle_inhibit_v1_create(
-    struct wl_display *display);
-
-struct wlr_xdg_decoration_manager_v1;
-struct wlr_xdg_decoration_manager_v1 *wlr_xdg_decoration_manager_v1_create(
-    struct wl_display *display);
-
-struct wlr_single_pixel_buffer_manager_v1;
-struct wlr_single_pixel_buffer_manager_v1 *wlr_single_pixel_buffer_manager_v1_create(
-    struct wl_display *display);
-]])
-    :build()
+-- Declarations are generated ahead of time (tools/ffi_gen.lua); at runtime we
+-- only load the libraries.
+require("shared.ffi.server")
+local lib = require("shared.ffi.lib").open({
+    "libwlroots-0.20.so",
+    "libwayland-server.so.0",
+    "libxkbcommon.so.0",
+    "libinput.so.10",
+})
 
 
 
@@ -407,7 +227,8 @@ wayland.xkb = setmetatable({}, {
 wayland.libinput = setmetatable({}, {
     __index = function(_, key)
         local full_name = "libinput_" .. key
-        local ok, fn = pcall(function() return ffi.C[full_name] end)
+        local fn = lib[full_name]
+        local ok = fn ~= nil
         if ok and fn then
             rawset(wayland.libinput, key, fn)
             return fn
