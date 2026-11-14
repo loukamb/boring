@@ -25,7 +25,10 @@ function watch.file(server, path, fn)
         log.warn("can't watch %s: inotify unavailable", path)
         return function() end
     end
-    if C.inotify_add_watch(fd, dir, C.IN_CLOSE_WRITE + C.IN_MOVED_TO + C.IN_CREATE) < 0 then
+    -- IN_ATTRIB: file sync tools (e.g. Lima's virtiofs inotify forwarding)
+    -- signal host-side edits by touching the file.
+    local mask = C.IN_CLOSE_WRITE + C.IN_MOVED_TO + C.IN_CREATE + C.IN_ATTRIB
+    if C.inotify_add_watch(fd, dir, mask) < 0 then
         log.warn("can't watch %s", dir)
         C.close(fd)
         return function() end
