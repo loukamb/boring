@@ -4,8 +4,16 @@
 -- Events (boring.events:on(name, fn)):
 --   window:map(w)   window:unmap(w)   window:focus(w)   window:blur(w)
 --   window:commit(w)                  window:title(w)
---   output:add(o)   output:change(o)  output:remove(o)
+--   window:fullscreen(w)              window:maximize(w)   (state changed)
+--   output:add(o)   output:change(o)  output:usable(o)     output:remove(o)
 --   ready()         shutdown()
+--
+-- What clients (or mouse shortcuts and actions) ask for; plugins that
+-- manage windows answer them, core does nothing on its own:
+--   window:request_move(w)            window:request_resize(w, edges)
+--   window:request_fullscreen(w, on)  window:request_maximize(w, on)
+--   window:request_minimize(w)
+--   window:request_geometry(w, box)   (X11 windows asking for a place and size)
 --
 -- Windows and outputs are the records described in compositor/window.lua and
 -- compositor/output.lua.
@@ -15,10 +23,10 @@ local log = require("shared.log")
 local registry = require("shared.wayland.registry")
 local window = require("compositor.window")
 local windows = require("compositor.windows")
-local layout = require("compositor.layout")
 local pointer = require("compositor.pointer")
 local output = require("compositor.output")
 local process = require("compositor.process")
+local timer = require("compositor.timer")
 
 local api = {}
 
@@ -53,6 +61,7 @@ function api.create(server)
     function boring.windows() return copy(server.windows) end
     function boring.focused() return server.focused end
     function boring.focus(w) windows.focus(server, w) end
+    function boring.blur() windows.blur(server) end
     function boring.cycle_focus() windows.cycle(server) end
     function boring.window_at(x, y) return (windows.at(server, x, y)) end
 
@@ -86,8 +95,19 @@ function api.create(server)
 
     function boring.cursor() return server.cursor.x, server.cursor.y end
     function boring.set_cursor(name) pointer.set_cursor(server, name) end
+    --- Free move/resize: the window follows the pointer until the button
+    --- is released.
     function boring.begin_move(w) pointer.begin_move(server, w) end
     function boring.begin_resize(w, edges) pointer.begin_resize(server, w, edges) end
+
+    --- Take the pointer: { motion = fn(x, y), button = fn(button, pressed)
+    --- -> true to end, finish = fn(cancelled), cursor = name, window = w }.
+    --- Without `button`, releasing a button ends the grab. Returns a
+    --- function that ends it.
+    function boring.grab_pointer(handlers) return pointer.grab(server, handlers) end
+
+    --- The cursor name for resizing by `edges` ("se-resize", ...).
+    boring.resize_cursor = pointer.resize_cursor
 
     --- Call fn(window, button) when a scene node (or one of its children) is
     --- clicked, e.g. a title bar. Returns a function that removes the handler.
@@ -97,23 +117,13 @@ function api.create(server)
         return function() server.click_handlers[key] = nil end
     end
 
-    -- Layouts ---------------------------------------------------------------
-
-    boring.layout = {
-        register = function(name, impl) layout.register(server, name, impl) end,
-        unregister = function(name) layout.unregister(server, name) end,
-        monitor_at = function(x, y) return layout.monitor_at(server, x, y) end,
-        monitor_for = function(o) return layout.monitor_for(server, o) end,
-        enter_fullscreen = layout.enter_fullscreen,
-        exit_fullscreen = layout.exit_fullscreen,
-        toggle_fullscreen = layout.toggle_fullscreen,
-        split = layout.split,
-        position_window = layout.position_window,
-    }
-
     -- Compositor ------------------------------------------------------------
 
     function boring.spawn(cmd) return process.spawn(cmd) end
+
+    --- Run fn after `ms` milliseconds; if it returns a number, again after
+    --- that many. Returns a function that cancels it.
+    function boring.after(ms, fn) return timer.after(server, ms, fn) end
 
     function boring.exit()
         process.stop_all()

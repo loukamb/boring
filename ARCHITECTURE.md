@@ -87,11 +87,10 @@ no module-level singletons to reach into.
 | `output.lua` | Configure monitors, render frames, output records |
 | `input.lua` | Seat, device hotplug, capabilities, cursor images, clipboard |
 | `keyboard.lua` | Keymaps, repeat, keyboard shortcuts |
-| `pointer.lua` | Cursor, buttons, scrolling, mouse shortcuts, move/resize grabs |
+| `pointer.lua` | Cursor, buttons, scrolling, mouse shortcuts, pointer grabs (free move/resize) |
 | `shortcuts.lua` | Parsing and matching shortcut strings (pure) |
 | `window.lua` | The window object: generic core + role implementation |
-| `windows.lua` | Map/unmap, focus, hit testing |
-| `layout.lua` | Per-monitor layout state, delegation to layout plugins (moves to `plugins/library/`, step 7) |
+| `windows.lua` | Map/unmap, default placement, focus, hit testing |
 | `xdg_shell.lua` | xdg toplevels → windows, popups, decorations |
 | `layer_shell.lua` | Layer surfaces, exclusive zones, usable area |
 | `session_lock.lua` | ext-session-lock: lock screens, fail-closed |
@@ -101,6 +100,7 @@ no module-level singletons to reach into.
 | `api.lua` | The `boring` API for config and plugins |
 | `process.lua` | Child processes, reaped via SIGCHLD on the event loop |
 | `watch.lua` | inotify on the event loop (config reload on save) |
+| `timer.lua` | Timers on the event loop, one C callback for all |
 | `plugin.lua` | Loading and mounting plugins |
 | `state.lua` | Loading and reloading the config file |
 | `config/` | Config sandbox, rules (`monitor`, `input`), `actions` |
@@ -188,7 +188,7 @@ a smoke test in the VM display.
    lives on `server`, with one path resolver. `switch.lua` becomes
    `boring.lua`: `./boring.lua` starts the compositor, `./boring.lua run
    <module>` runs one of boring's programs.
-7. **Window management out of core.** `compositor/layout.lua` moves to
+7. ~~**Window management out of core.**~~ Done. `compositor/layout.lua` moves to
    `library/spaces`: a space is an area, its windows and its arrangement;
    layout plugins register arrangements with it. Core keeps interactive
    move/resize as a tool (`boring.begin_move`), and turns client requests

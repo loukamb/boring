@@ -8,7 +8,6 @@
 local ffi = require("ffi")
 local wl = require("shared.wl")
 local log = require("shared.log")
-local layout = require("compositor.layout")
 
 local lib = wl.lib
 
@@ -57,7 +56,7 @@ function output_management.setup(server)
                 if o then
                     o.usable = o:box()
                     server.events:emit("output:change", o)
-                    layout.usable_area_changed(server, o)
+                    server.events:emit("output:usable", o)
                 end
             end
             lib.wlr_output_state_finish(st)

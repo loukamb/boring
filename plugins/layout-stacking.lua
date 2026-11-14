@@ -2,6 +2,7 @@
 -- Floating windows with optional server-side title bars.
 --
 --   plugin("@boring/layout-stacking"):mount({
+--       outputs = { "DP-1" },          -- default: every output
 --       theme = {
 --           height = 24,               -- title bar height
 --           font = "Sans Bold 10",
@@ -22,6 +23,7 @@
 
 local color = require("shared.color")
 local ffi = require("ffi")
+local spaces = require("@boring/library/spaces")
 
 local plugin = { name = "layout-stacking" }
 
@@ -135,26 +137,46 @@ local function make_stacking(config)
         end
     end
 
+    local function managed(w)
+        local space = spaces.of(w)
+        return space ~= nil and space.impl == stacking
+    end
+
     local function update_decorations(w)
-        if not decorated then return end
+        if not decorated or not managed(w) then return end
         local d = w.data.stacking
+        if w.fullscreen then
+            if d then d.tree.node:set_enabled(false) end
+            return
+        end
         local g = w:geometry()
         if not d or d.width ~= g.width or d.title ~= w:title() then
             build_decorations(w)
-        elseif d.x ~= g.x or d.y ~= g.y then
-            d.x, d.y = g.x, g.y
-            d.tree.node:set_position(g.x, g.y - height)
+        else
+            d.tree.node:set_enabled(true)
+            if d.x ~= g.x or d.y ~= g.y then
+                d.x, d.y = g.x, g.y
+                d.tree.node:set_position(g.x, g.y - height)
+            end
         end
     end
     stacking.update_decorations = update_decorations
 
-    function stacking:on_window_add(monitor, w)
+    --- X11 windows asking for a place and size get it.
+    function stacking.request_geometry(w, box)
+        if not managed(w) or w.fullscreen then return end
+        w:set_position(box.x, box.y)
+        w:set_size(box.width, box.height)
+    end
+
+    function stacking:add(space, w)
         build_decorations(w)
         -- Windows keep their place when the layout is re-registered (reload).
         if w.data.stacking_placed then return end
         w.data.stacking_placed = true
+        if w.impl.positioned then return end
         -- Centre in the usable area, title bar included.
-        local area = monitor.output.usable
+        local area = space.output.usable
         local g = w:geometry()
         local top = decorated and height or 0
         local x = area.x + math.max(0, (area.width - g.width) / 2) - g.x
@@ -162,42 +184,15 @@ local function make_stacking(config)
         w:set_position(x, y)
     end
 
-    function stacking:on_window_remove(monitor, w)
+    function stacking:remove(_, w)
         destroy_decorations(w)
-        if monitor.stacking_saved then monitor.stacking_saved[w] = nil end
     end
 
-    function stacking:shutdown(monitor)
-        for _, w in ipairs(monitor.windows) do destroy_decorations(w) end
+    function stacking:shutdown(space)
+        for _, w in ipairs(space.windows) do destroy_decorations(w) end
     end
 
-    -- Moves and resizes are the pointer's built-in floating behaviour.
-
-    function stacking:enter_fullscreen(monitor, w)
-        monitor.stacking_saved = monitor.stacking_saved or {}
-        local x, y = w:position()
-        local width, h = w:size()
-        monitor.stacking_saved[w] = { x = x, y = y, width = width, height = h }
-        local d = w.data.stacking
-        if d then d.tree.node:set_enabled(false) end
-        local area = monitor.output:box()
-        local g = w:geometry()
-        w:set_position(area.x - g.x, area.y - g.y)
-        w:set_size(area.width, area.height)
-        w:raise()
-        return true
-    end
-
-    function stacking:exit_fullscreen(monitor)
-        local w = monitor.fullscreen_surface
-        local saved = w and monitor.stacking_saved and monitor.stacking_saved[w]
-        if not saved then return end
-        monitor.stacking_saved[w] = nil
-        w:set_position(saved.x, saved.y)
-        w:set_size(saved.width, saved.height)
-        local d = w.data.stacking
-        if d then d.tree.node:set_enabled(true) end
-    end
+    -- No move/resize: windows follow the pointer (spaces' default).
 
     return stacking
 end
@@ -206,8 +201,9 @@ function plugin:mount(config, ctx)
     local stacking = make_stacking(config)
     ctx.scope:subscribe(boring.events, "window:commit", stacking.update_decorations)
     ctx.scope:subscribe(boring.events, "window:title", stacking.update_decorations)
-    boring.layout.register("stacking", stacking)
-    ctx.scope:defer(function() boring.layout.unregister("stacking") end)
+    ctx.scope:subscribe(boring.events, "window:fullscreen", stacking.update_decorations)
+    ctx.scope:subscribe(boring.events, "window:request_geometry", stacking.request_geometry)
+    ctx.scope:defer(spaces.register("stacking", stacking, { outputs = config.outputs }))
     return { layout = stacking }
 end
 

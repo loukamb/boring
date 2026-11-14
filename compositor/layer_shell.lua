@@ -5,7 +5,6 @@
 -- output.usable so layouts keep windows clear of panels.
 
 local wl = require("shared.wl")
-local layout = require("compositor.layout")
 local windows = require("compositor.windows")
 
 local ffi, lib, C = wl.ffi, wl.lib, wl.C
@@ -48,7 +47,7 @@ function layer_shell.arrange(server, o)
     o.usable = { x = usable.x, y = usable.y, width = usable.width, height = usable.height }
     if not old or old.x ~= usable.x or old.y ~= usable.y
         or old.width ~= usable.width or old.height ~= usable.height then
-        layout.usable_area_changed(server, o)
+        server.events:emit("output:usable", o)
     end
 end
 

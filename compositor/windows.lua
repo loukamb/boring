@@ -1,9 +1,10 @@
 -- Window bookkeeping: registration, map/unmap, keyboard focus, hit testing.
 --
 -- server.windows holds mapped windows, most recently focused first.
+-- Hidden windows (a plugin called w:set_enabled(false)) don't get focus
+-- when another window goes away or focus cycles.
 
 local wl = require("shared.wl")
-local layout = require("compositor.layout")
 
 local ffi, lib, C = wl.ffi, wl.lib, wl.C
 local addr = wl.addr
@@ -103,29 +104,53 @@ function windows.restore_keyboard(server)
     end
 end
 
+-- Without plugins, a new window opens at the origin of the output under
+-- the cursor.
+local function place(server, w)
+    if w.impl.positioned then return end
+    local cursor = server.cursor
+    local o = cursor ~= nil and require("compositor.output").at(server, cursor.x, cursor.y)
+        or server.outputs[1]
+    if not o then return end
+    local b, g = o:box(), w:geometry()
+    w:set_position(b.x - g.x, b.y - g.y)
+end
+
 function windows.map(server, w)
     if w.mapped then return end
     w.mapped = true
     table.insert(server.windows, 1, w)
-    layout.add_window(server, w)
+    place(server, w)
     server.events:emit("window:map", w)
     windows.focus(server, w)
 end
 
+-- The most recently focused visible window, other than `except`.
+local function next_visible(server, except)
+    for _, w in ipairs(server.windows) do
+        if w ~= except and w:visible() then return w end
+    end
+end
+windows.next_visible = next_visible
+
 function windows.unmap(server, w)
     if not w.mapped then return end
     w.mapped = false
-    if server.grab and server.grab.window == w then
+    local grab = server.grab
+    if grab and grab.window == w then
         server.grab = nil
+        if grab.finish then
+            local ok, err = xpcall(grab.finish, debug.traceback, true)
+            if not ok then require("shared.log").error("pointer grab: %s", tostring(err)) end
+        end
     end
-    layout.remove_window(server, w)
     remove(server.windows, w)
     server.events:emit("window:unmap", w)
     if server.focused == w then
         server.focused = nil
         w.activated = false
         server.events:emit("window:blur", w)
-        local next_window = server.windows[1]
+        local next_window = next_visible(server)
         if next_window then
             windows.focus(server, next_window)
         elseif not windows.keyboard_grabbed(server) then
@@ -134,11 +159,14 @@ function windows.unmap(server, w)
     end
 end
 
---- Focus the least recently focused window (simple alt-tab).
+--- Focus the least recently focused visible window (simple alt-tab).
 function windows.cycle(server)
-    local n = #server.windows
-    if n >= 2 then
-        windows.focus(server, server.windows[n])
+    for i = #server.windows, 2, -1 do
+        local w = server.windows[i]
+        if w:visible() then
+            windows.focus(server, w)
+            return
+        end
     end
 end
 

@@ -5,6 +5,8 @@
 --
 -- Regular X11 windows become boring windows (role "xwayland"); override-
 -- redirect ones (menus, tooltips) are drawn unmanaged above everything.
+-- Their requests (move, resize, fullscreen, ...) become the same
+-- window:request_* events as Wayland clients'.
 
 local plugin = { name = "xwayland" }
 
@@ -30,6 +32,7 @@ function plugin:mount(_, ctx)
     local function impl(xs)
         return {
             role = "xwayland",
+            positioned = true, -- X11 clients place themselves
             geometry = function() return 0, 0, xs.width, xs.height end,
             set_size = function(width, height)
                 local w = boring.window.from_surface(xs.surface)
@@ -43,6 +46,7 @@ function plugin:mount(_, ctx)
                 if on then lib.wlr_xwayland_set_seat(xwayland, server.seat) end
             end,
             set_fullscreen = function(on) xs:set_fullscreen(on) end,
+            set_maximized = function(on) lib.wlr_xwayland_surface_set_maximized(xs, on, on) end,
             close = function() xs:close() end,
             title = function() return wl.string(xs.title) end,
             app_id = function() return wl.string(xs.class) end,
@@ -73,10 +77,7 @@ function plugin:mount(_, ctx)
             surface_scope:listen(xs.surface.events.map, map)
             surface_scope:listen(xs.surface.events.unmap, unmap)
             surface_scope:listen(xs.surface.events.commit, function()
-                if w then
-                    boring.layout.position_window(w)
-                    boring.events:emit("window:commit", w)
-                end
+                if w then boring.events:emit("window:commit", w) end
             end)
         end)
         s:listen(xs.events.dissociate, function()
@@ -84,19 +85,34 @@ function plugin:mount(_, ctx)
             if surface_scope then surface_scope:close() end
             surface_scope = nil
         end)
+        -- Before mapping, the client gets what it asks for. Afterwards it's a
+        -- request plugins may follow (window:request_geometry); it's answered
+        -- with whatever the geometry ends up being.
         s:listen(xs.events.request_configure, function(ev)
-            xs:configure(ev.x, ev.y, ev.width, ev.height)
-            if w and not w.monitor then w.tree.node:set_position(ev.x, ev.y) end
+            if not w then
+                xs:configure(ev.x, ev.y, ev.width, ev.height)
+                return
+            end
+            boring.events:emit("window:request_geometry", w,
+                { x = ev.x, y = ev.y, width = ev.width, height = ev.height })
+            local x, y = w:position()
+            xs:configure(x, y, xs.width, xs.height)
         end, "struct wlr_xwayland_surface_configure_event")
         s:listen(xs.events.request_fullscreen, function()
-            if w then
-                if xs.fullscreen then boring.layout.enter_fullscreen(w) else boring.layout.exit_fullscreen(w.monitor) end
-            end
+            if w then boring.events:emit("window:request_fullscreen", w, xs.fullscreen) end
         end)
+        s:listen(xs.events.request_maximize, function()
+            if w then boring.events:emit("window:request_maximize", w, xs.maximized_horz or xs.maximized_vert) end
+        end)
+        s:listen(xs.events.request_minimize, function(ev)
+            if w and ev.minimize then boring.events:emit("window:request_minimize", w) end
+        end, "struct wlr_xwayland_minimize_event")
         s:listen(xs.events.request_activate, function() if w then boring.focus(w) end end)
-        s:listen(xs.events.request_move, function() if w then boring.begin_move(w) end end)
+        s:listen(xs.events.request_move, function()
+            if w then boring.events:emit("window:request_move", w) end
+        end)
         s:listen(xs.events.request_resize, function(ev)
-            if w then boring.begin_resize(w, ev.edges) end
+            if w then boring.events:emit("window:request_resize", w, ev.edges) end
         end, "struct wlr_xwayland_resize_event")
         s:listen(xs.events.set_title, function() if w then boring.events:emit("window:title", w) end end)
         s:listen(xs.events.set_class, function() if w then boring.events:emit("window:title", w) end end)

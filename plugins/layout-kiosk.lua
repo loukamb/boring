@@ -1,54 +1,54 @@
 -- plugins/layout-kiosk.lua
--- Kiosk layout: one window at a time, filling the output.
+-- Kiosk layout: one window at a time, filling the usable area.
 --
---   plugin("@boring/layout-kiosk"):mount()
---   monitor.new({ name = "*", layout = { mode = "kiosk" } })
+--   plugin("@boring/layout-kiosk"):mount({
+--       outputs = { "HDMI-A-1" },   -- default: every output
+--   })
+
+local spaces = require("@boring/library/spaces")
 
 local plugin = { name = "layout-kiosk" }
 
 local kiosk = {}
 
-local function fill(monitor, w)
-    local area = monitor.output.usable
-    w:set_position(area.x, area.y)
+local function fill(space, w)
+    local area = space.output.usable
+    local g = w:geometry()
+    w:set_position(area.x - g.x, area.y - g.y)
     w:set_size(area.width, area.height)
 end
 
-function kiosk:on_window_add(monitor, w)
-    local current = monitor.kiosk_current
+local function show(space, w)
+    local current = space.data.current
     if current and current ~= w then current:set_enabled(false) end
-    monitor.kiosk_current = w
-    w:set_enabled(true)
-    fill(monitor, w)
+    space.data.current = w
+    w:set_enabled(space.shown)
+    fill(space, w)
 end
 
-function kiosk:on_window_remove(monitor, w)
-    if monitor.kiosk_current ~= w then return end
-    monitor.kiosk_current = nil
-    local previous = monitor.windows[#monitor.windows]
-    if previous then self:on_window_add(monitor, previous) end
+function kiosk:add(space, w) show(space, w) end
+
+function kiosk:remove(space, w)
+    if space.data.current ~= w then return end
+    space.data.current = nil
+    local previous = space.windows[#space.windows]
+    if previous then show(space, previous) end
 end
 
-function kiosk:on_usable_area(monitor)
-    if monitor.kiosk_current then fill(monitor, monitor.kiosk_current) end
+function kiosk:arrange(space)
+    if space.data.current then fill(space, space.data.current) end
 end
 
-function kiosk:enter_fullscreen(monitor, w)
-    fill(monitor, w)
-    return true
+function kiosk:shutdown(space)
+    for _, w in ipairs(space.windows) do w:set_enabled(space.shown) end
 end
 
-function kiosk:exit_fullscreen(monitor)
-    if monitor.kiosk_current then fill(monitor, monitor.kiosk_current) end
-end
+-- Kiosk windows stay put.
+function kiosk:move() end
+function kiosk:resize() end
 
--- Claim move/resize grabs and ignore them: kiosk windows stay put.
-function kiosk:begin_move() return true end
-function kiosk:begin_resize() return true end
-
-function plugin:mount(_, ctx)
-    boring.layout.register("kiosk", kiosk)
-    ctx.scope:defer(function() boring.layout.unregister("kiosk") end)
+function plugin:mount(config, ctx)
+    ctx.scope:defer(spaces.register("kiosk", kiosk, { outputs = config.outputs }))
     return { layout = kiosk }
 end
 

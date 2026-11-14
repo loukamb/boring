@@ -2,11 +2,16 @@
 -- Sway-style N-ary tiling: windows live in a tree of horizontal/vertical
 -- splits with resizable fractions.
 --
---   plugin("@boring/layout-tiling"):mount()
---   monitor.new({ name = "*", layout = { mode = "tiling", gaps = { inner = 4, outer = 4, smart = true } } })
+--   local tiling = plugin("@boring/layout-tiling"):mount({
+--       outputs = { "DP-1" },                         -- default: every output
+--       gaps = { inner = 4, outer = 4, smart = true },
+--   })
+--   ["Mod4+b"] = tiling.actions.split_horizontal,
+--   ["Mod4+v"] = tiling.actions.split_vertical,
 
 local bit = require("bit")
 local C = require("ffi").C
+local spaces = require("@boring/library/spaces")
 
 local tiling = {}
 
@@ -189,7 +194,7 @@ end
 -- @param axis: The edge/axis (WLR_EDGE_LEFT, WLR_EDGE_RIGHT, etc.)
 -- @param amount: Pixel amount (integer) to resize by
 -- @param siblings: List of all siblings at this level
-local function container_resize_tiled(con, axis, amount, siblings, monitor_state)
+local function container_resize_tiled(con, axis, amount, siblings, space)
     if not con or not siblings or #siblings < 2 then
         return
     end
@@ -451,7 +456,7 @@ arrange_container = function(container, inner_gap)
     if container.type == "leaf" then
         -- Position the actual window
         local surface = container.surface
-        if has_scene(surface) then
+        if has_scene(surface) and not surface.fullscreen then
             local node_x = container.x
             local node_y = container.y
 
@@ -490,17 +495,17 @@ arrange_container = function(container, inner_gap)
 end
 
 -- Arrange the entire workspace
-local function arrange_workspace(monitor_state)
-    local ts = monitor_state.tiling
+local function arrange_workspace(space)
+    local ts = space.data.tiling
     if not ts then return end
 
-    local output = monitor_state.output
+    local output = space.output
     if not output then return end
 
     local area = output.usable
 
     -- Get gap configuration
-    local gaps = monitor_state.config.gaps or { inner = 4, outer = 4, smart = true }
+    local gaps = tiling.gaps or { inner = 4, outer = 4, smart = true }
     local inner_gap = gaps.inner or 4
     local outer_gap = gaps.outer or 4
 
@@ -709,9 +714,9 @@ end
 
 -- A tree saved by shutdown (plugin remount), with windows that went away in
 -- the meantime removed and the interactive state reset.
-local function restore(saved, monitor_state)
+local function restore(saved, space)
     local present = {}
-    for _, w in ipairs(monitor_state.windows or {}) do present[w] = true end
+    for _, w in ipairs(space.windows) do present[w] = true end
     local leaves = {}
     for _, child in ipairs(saved.children) do get_all_leaves(child, leaves) end
     for _, leaf in ipairs(leaves) do
@@ -723,14 +728,14 @@ local function restore(saved, monitor_state)
     return saved
 end
 
-function tiling:init(monitor_state)
-    local saved = self.saved and self.saved[monitor_state.output]
+function tiling:init(space)
+    local saved = self.saved and self.saved[space]
     if saved then
-        self.saved[monitor_state.output] = nil
-        monitor_state.tiling = restore(saved, monitor_state)
+        self.saved[space] = nil
+        space.data.tiling = restore(saved, space)
         return
     end
-    monitor_state.tiling = {
+    space.data.tiling = {
         -- Workspace-level layout (like Sway's workspace.layout)
         layout = "horizontal", -- "horizontal" or "vertical"
         -- Top-level tiled containers (like Sway's workspace.tiling)
@@ -761,45 +766,47 @@ function tiling:init(monitor_state)
     }
 end
 
-function tiling:shutdown(monitor_state)
-    if self.saved and monitor_state.tiling then
-        -- Drop trees of outputs that are gone, then keep this one.
+function tiling:shutdown(space)
+    if self.saved and space.data.tiling then
+        -- Drop trees of spaces that are gone, then keep this one.
         local live = {}
-        for _, o in ipairs(boring.outputs()) do live[o] = true end
-        for o in pairs(self.saved) do
-            if not live[o] then self.saved[o] = nil end
+        for _, o in ipairs(boring.outputs()) do
+            for _, other in ipairs(spaces.list(o)) do live[other] = true end
         end
-        self.saved[monitor_state.output] = monitor_state.tiling
+        for other in pairs(self.saved) do
+            if not live[other] then self.saved[other] = nil end
+        end
+        self.saved[space] = space.data.tiling
     end
-    monitor_state.tiling = nil
+    space.data.tiling = nil
 end
 
 --------------------------------------------------------------------------------
 -- Window Lifecycle
 --------------------------------------------------------------------------------
 
-function tiling:on_window_add(monitor_state, surface)
-    local ts = monitor_state.tiling
+function tiling:add(space, surface)
+    local ts = space.data.tiling
 
     -- Already in a restored tree.
     if find_in_children(ts.children, surface) then
-        arrange_workspace(monitor_state)
+        arrange_workspace(space)
         return
     end
 
-    -- New windows go next to the focused one, if it's on this monitor.
+    -- New windows go next to the focused one, if it's in this space.
     local focused = boring.focused()
-    if focused and focused.monitor ~= monitor_state then focused = nil end
+    if focused and spaces.of(focused) ~= space then focused = nil end
 
     -- Add as sibling
     add_window(ts, surface, focused)
 
     -- Arrange the workspace
-    arrange_workspace(monitor_state)
+    arrange_workspace(space)
 end
 
-function tiling:on_window_remove(monitor_state, surface)
-    local ts = monitor_state.tiling
+function tiling:remove(space, surface)
+    local ts = space.data.tiling
 
     -- Clear grab if this surface was grabbed
     if ts.grabbed_surface == surface then
@@ -811,32 +818,32 @@ function tiling:on_window_remove(monitor_state, surface)
     remove_window(ts, surface)
 
     -- Arrange the workspace
-    arrange_workspace(monitor_state)
+    arrange_workspace(space)
 end
 
-function tiling:on_usable_area(monitor_state)
-    arrange_workspace(monitor_state)
+function tiling:arrange(space)
+    arrange_workspace(space)
 end
 
-function tiling:split(monitor_state, surface, layout)
+function tiling:split(space, surface, layout)
     if layout ~= "horizontal" and layout ~= "vertical" then
         return false
     end
 
-    local ts = monitor_state.tiling
+    local ts = space.data.tiling
     if not ts then return false end
 
     local container = surface and find_in_children(ts.children, surface) or nil
     local ok = create_split_around_container(ts, container, layout)
     if ok then
-        arrange_workspace(monitor_state)
+        arrange_workspace(space)
     end
     return ok
 end
 
-function tiling:position_window(monitor_state, surface)
+function tiling:commit(space, surface)
     -- Re-apply position for a single window (called after commits)
-    local ts = monitor_state.tiling
+    local ts = space.data.tiling
     if not ts then return end
 
     local container = find_in_children(ts.children, surface)
@@ -874,41 +881,24 @@ local function find_leaf_at(children, x, y)
     return nil
 end
 
-function tiling:begin_move(monitor_state, surface, cursor_x, cursor_y)
-    if not surface then return false end
-
-    local ts = monitor_state.tiling
-    ts.grabbed_surface = surface
-    ts.mode = "move"
-    ts.grab_start_x = cursor_x
-    ts.grab_start_y = cursor_y
-
-    return true
-end
-
-function tiling:update_move(monitor_state, cursor_x, cursor_y)
-    -- In tiling mode, we don't move during drag - just wait for end_move
-end
-
-function tiling:end_move(monitor_state)
-    local ts = monitor_state.tiling
-    if ts.mode ~= "move" then return end
-
-    local grabbed_surface = ts.grabbed_surface
-    local cx, cy = boring.cursor()
-
-    -- Find containers
-    local grabbed_container = find_in_children(ts.children, grabbed_surface)
-    local target_container = find_leaf_at(ts.children, cx, cy)
-
-    if grabbed_container and target_container and grabbed_container ~= target_container then
-        -- Swap surfaces between containers
-        grabbed_container.surface, target_container.surface = target_container.surface, grabbed_container.surface
-        arrange_workspace(monitor_state)
-    end
-
-    ts.grabbed_surface = nil
-    ts.mode = "none"
+-- Dragging a window drops it on another tile: the two swap.
+function tiling:move(space, surface)
+    boring.grab_pointer({
+        window = surface,
+        cursor = "grabbing",
+        finish = function(cancelled)
+            if cancelled then return end
+            local ts = space.data.tiling
+            if not ts then return end
+            local cx, cy = boring.cursor()
+            local grabbed = find_in_children(ts.children, surface)
+            local target = find_leaf_at(ts.children, cx, cy)
+            if grabbed and target and grabbed ~= target then
+                grabbed.surface, target.surface = target.surface, grabbed.surface
+                arrange_workspace(space)
+            end
+        end,
+    })
 end
 
 --------------------------------------------------------------------------------
@@ -939,10 +929,10 @@ local function get_resize_sibling(con, edge, siblings)
     return siblings[sibling_idx]
 end
 
-function tiling:begin_resize(monitor_state, surface, cursor_x, cursor_y, edges)
+local function begin_resize(space, surface, cursor_x, cursor_y, edges)
     if not surface then return false end
 
-    local ts = monitor_state.tiling
+    local ts = space.data.tiling
     local container = find_in_children(ts.children, surface)
     if not container then return false end
 
@@ -1027,8 +1017,8 @@ function tiling:begin_resize(monitor_state, surface, cursor_x, cursor_y, edges)
     return true
 end
 
-function tiling:update_resize(monitor_state, cursor_x, cursor_y)
-    local ts = monitor_state.tiling
+local function update_resize(space, cursor_x, cursor_y)
+    local ts = space.data.tiling
     if ts.mode ~= "resize" then
         return
     end
@@ -1054,7 +1044,7 @@ function tiling:update_resize(monitor_state, cursor_x, cursor_y)
         -- Round to integer - only apply if >= 1 pixel
         local rounded_x = math.floor(amount_x + 0.5)
         if rounded_x ~= 0 then
-            container_resize_tiled(ts.h_con, ts.edge_x, rounded_x, ts.h_siblings, monitor_state)
+            container_resize_tiled(ts.h_con, ts.edge_x, rounded_x, ts.h_siblings, space)
             -- Only update ref by the amount we actually used (in pixels)
             if bit.band(ts.edge, WLR_EDGE_LEFT) ~= 0 then
                 ts.ref_lx = ts.ref_lx - rounded_x
@@ -1079,7 +1069,7 @@ function tiling:update_resize(monitor_state, cursor_x, cursor_y)
         -- Round to integer - only apply if >= 1 pixel
         local rounded_y = math.floor(amount_y + 0.5)
         if rounded_y ~= 0 then
-            container_resize_tiled(ts.v_con, ts.edge_y, rounded_y, ts.v_siblings, monitor_state)
+            container_resize_tiled(ts.v_con, ts.edge_y, rounded_y, ts.v_siblings, space)
             -- Only update ref by the amount we actually used
             if bit.band(ts.edge, WLR_EDGE_TOP) ~= 0 then
                 ts.ref_ly = ts.ref_ly - rounded_y
@@ -1092,12 +1082,12 @@ function tiling:update_resize(monitor_state, cursor_x, cursor_y)
 
     -- Re-arrange workspace only if we resized
     if did_resize then
-        arrange_workspace(monitor_state)
+        arrange_workspace(space)
     end
 end
 
-function tiling:end_resize(monitor_state)
-    local ts = monitor_state.tiling
+local function end_resize(space)
+    local ts = space.data.tiling
     ts.grabbed_surface = nil
     ts.mode = "none"
     -- Clear horizontal resize state
@@ -1116,33 +1106,18 @@ function tiling:end_resize(monitor_state)
     ts.edge_y = 0
 end
 
--- Fullscreen
---------------------------------------------------------------------------------
-
-function tiling:enter_fullscreen(monitor_state, surface)
-    if not has_scene(surface) then
-        return false
-    end
-    local area = monitor_state.output:box()
-    local geo = geometry(surface)
-    surface:set_position(area.x - geo.x, area.y - geo.y)
-    surface:set_size(area.width, area.height)
-    surface:set_clip(nil)
-    surface:raise()
-    return true
-end
-
-function tiling:exit_fullscreen(monitor_state)
-    local surface = monitor_state.fullscreen_surface
-    if not surface then
-        return false
-    end
-
-    -- The layout module clears fullscreen_surface after this returns.
-    monitor_state.fullscreen_surface = nil
-    arrange_workspace(monitor_state)
-
-    return true
+-- Dragging a window's edge moves the split next to it.
+function tiling:resize(space, surface, edges)
+    local cx, cy = boring.cursor()
+    if not begin_resize(space, surface, cx, cy, edges) then return end
+    boring.grab_pointer({
+        window = surface,
+        cursor = boring.resize_cursor(space.data.tiling.edge),
+        motion = function(x, y) update_resize(space, x, y) end,
+        finish = function()
+            if space.data.tiling then end_resize(space) end
+        end,
+    })
 end
 
 --------------------------------------------------------------------------------
@@ -1163,16 +1138,31 @@ plugin._private = {
     find_leaf_at = find_leaf_at,
 }
 
-function plugin:mount(_, ctx)
-    -- Trees are kept per output across remounts (config reloads).
+function plugin:mount(config, ctx)
+    tiling.gaps = config.gaps or { inner = 4, outer = 4, smart = true }
+    -- Trees are kept per space across remounts (config reloads).
     ctx.state.trees = ctx.state.trees or {}
     tiling.saved = ctx.state.trees
-    boring.layout.register("tiling", tiling)
+    local unregister = spaces.register("tiling", tiling, { outputs = config.outputs })
     ctx.scope:defer(function()
-        boring.layout.unregister("tiling")
+        unregister()
         tiling.saved = nil
     end)
-    return { layout = tiling }
+
+    local function split(direction)
+        return function()
+            local w = boring.focused()
+            local space = w and spaces.of(w)
+            if space and space.impl == tiling then tiling:split(space, w, direction) end
+        end
+    end
+    return {
+        layout = tiling,
+        actions = {
+            split_horizontal = split("horizontal"),
+            split_vertical = split("vertical"),
+        },
+    }
 end
 
 return plugin

@@ -3,16 +3,17 @@
 --
 -- An output record is a plain table:
 --   { name, wlr, scene_output, layout_output, scope, usable = {x,y,width,height},
--- Events: output:add(o), output:change(o) (mode/scale/transform), output:remove(o).
 --     box(o), size(o) }
 -- `usable` is the area left after layer-shell exclusive zones (panels), in
--- layout coordinates; layouts should arrange windows inside it.
+-- layout coordinates; plugins placing windows keep them inside it.
+--
+-- Events: output:add(o), output:change(o) (mode, scale, transform or
+-- position), output:usable(o) (usable area), output:remove(o).
 
 local bit = require("bit")
 local wl = require("shared.wl")
 local log = require("shared.log")
 local state = require("compositor.state")
-local layout = require("compositor.layout")
 
 local ffi, lib, C = wl.ffi, wl.lib, wl.C
 
@@ -138,7 +139,6 @@ local function new_output(server, wlr_output)
 
     o.scope:listen(wlr_output.events.destroy, function()
         server.events:emit("output:remove", o)
-        layout.remove_monitor(server, o)
         for i, x in ipairs(server.outputs) do
             if x == o then
                 table.remove(server.outputs, i)
@@ -149,7 +149,6 @@ local function new_output(server, wlr_output)
     end)
 
     table.insert(server.outputs, o)
-    layout.add_monitor(server, o, config.layout)
     server.events:emit("output:add", o)
 end
 

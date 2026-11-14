@@ -403,6 +403,18 @@ enum wl_subsurface_error {
 enum wl_fixes_error {
     WL_FIXES_ERROR_INVALID_ACK_REMOVE = 0,
 };
+enum xdg_wm_base_error {
+    XDG_WM_BASE_ERROR_ROLE = 0,
+    XDG_WM_BASE_ERROR_DEFUNCT_SURFACES = 1,
+    XDG_WM_BASE_ERROR_NOT_THE_TOPMOST_POPUP = 2,
+    XDG_WM_BASE_ERROR_INVALID_POPUP_PARENT = 3,
+    XDG_WM_BASE_ERROR_INVALID_SURFACE_STATE = 4,
+    XDG_WM_BASE_ERROR_INVALID_POSITIONER = 5,
+    XDG_WM_BASE_ERROR_UNRESPONSIVE = 6,
+};
+enum xdg_positioner_error {
+    XDG_POSITIONER_ERROR_INVALID_INPUT = 0,
+};
 enum xdg_positioner_anchor {
     XDG_POSITIONER_ANCHOR_NONE = 0,
     XDG_POSITIONER_ANCHOR_TOP = 1,
@@ -433,61 +445,6 @@ enum xdg_positioner_constraint_adjustment {
     XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_FLIP_Y = 8,
     XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_RESIZE_X = 16,
     XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_RESIZE_Y = 32,
-};
-struct zwlr_layer_shell_v1;
-struct zwlr_layer_surface_v1;
-struct xdg_popup;
-extern const struct wl_interface zwlr_layer_shell_v1_interface;
-extern const struct wl_interface zwlr_layer_surface_v1_interface;
-enum zwlr_layer_shell_v1_error {
-    ZWLR_LAYER_SHELL_V1_ERROR_ROLE = 0,
-    ZWLR_LAYER_SHELL_V1_ERROR_INVALID_LAYER = 1,
-    ZWLR_LAYER_SHELL_V1_ERROR_ALREADY_CONSTRUCTED = 2,
-};
-enum zwlr_layer_shell_v1_layer {
-    ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND = 0,
-    ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM = 1,
-    ZWLR_LAYER_SHELL_V1_LAYER_TOP = 2,
-    ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY = 3,
-};
-enum zwlr_layer_surface_v1_keyboard_interactivity {
-    ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_NONE = 0,
-    ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_EXCLUSIVE = 1,
-    ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_ON_DEMAND = 2,
-};
-enum zwlr_layer_surface_v1_error {
-    ZWLR_LAYER_SURFACE_V1_ERROR_INVALID_SURFACE_STATE = 0,
-    ZWLR_LAYER_SURFACE_V1_ERROR_INVALID_SIZE = 1,
-    ZWLR_LAYER_SURFACE_V1_ERROR_INVALID_ANCHOR = 2,
-    ZWLR_LAYER_SURFACE_V1_ERROR_INVALID_KEYBOARD_INTERACTIVITY = 3,
-    ZWLR_LAYER_SURFACE_V1_ERROR_INVALID_EXCLUSIVE_EDGE = 4,
-};
-enum zwlr_layer_surface_v1_anchor {
-    ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP = 1,
-    ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM = 2,
-    ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT = 4,
-    ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT = 8,
-};
-struct xdg_wm_base;
-struct xdg_positioner;
-struct xdg_surface;
-struct xdg_toplevel;
-extern const struct wl_interface xdg_wm_base_interface;
-extern const struct wl_interface xdg_positioner_interface;
-extern const struct wl_interface xdg_surface_interface;
-extern const struct wl_interface xdg_toplevel_interface;
-extern const struct wl_interface xdg_popup_interface;
-enum xdg_wm_base_error {
-    XDG_WM_BASE_ERROR_ROLE = 0,
-    XDG_WM_BASE_ERROR_DEFUNCT_SURFACES = 1,
-    XDG_WM_BASE_ERROR_NOT_THE_TOPMOST_POPUP = 2,
-    XDG_WM_BASE_ERROR_INVALID_POPUP_PARENT = 3,
-    XDG_WM_BASE_ERROR_INVALID_SURFACE_STATE = 4,
-    XDG_WM_BASE_ERROR_INVALID_POSITIONER = 5,
-    XDG_WM_BASE_ERROR_UNRESPONSIVE = 6,
-};
-enum xdg_positioner_error {
-    XDG_POSITIONER_ERROR_INVALID_INPUT = 0,
 };
 enum xdg_surface_error {
     XDG_SURFACE_ERROR_NOT_CONSTRUCTED = 1,
@@ -537,6 +494,49 @@ enum xdg_toplevel_wm_capabilities {
 enum xdg_popup_error {
     XDG_POPUP_ERROR_INVALID_GRAB = 0,
 };
+struct zwlr_layer_shell_v1;
+struct zwlr_layer_surface_v1;
+struct xdg_popup;
+extern const struct wl_interface zwlr_layer_shell_v1_interface;
+extern const struct wl_interface zwlr_layer_surface_v1_interface;
+enum zwlr_layer_shell_v1_error {
+    ZWLR_LAYER_SHELL_V1_ERROR_ROLE = 0,
+    ZWLR_LAYER_SHELL_V1_ERROR_INVALID_LAYER = 1,
+    ZWLR_LAYER_SHELL_V1_ERROR_ALREADY_CONSTRUCTED = 2,
+};
+enum zwlr_layer_shell_v1_layer {
+    ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND = 0,
+    ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM = 1,
+    ZWLR_LAYER_SHELL_V1_LAYER_TOP = 2,
+    ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY = 3,
+};
+enum zwlr_layer_surface_v1_keyboard_interactivity {
+    ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_NONE = 0,
+    ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_EXCLUSIVE = 1,
+    ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_ON_DEMAND = 2,
+};
+enum zwlr_layer_surface_v1_error {
+    ZWLR_LAYER_SURFACE_V1_ERROR_INVALID_SURFACE_STATE = 0,
+    ZWLR_LAYER_SURFACE_V1_ERROR_INVALID_SIZE = 1,
+    ZWLR_LAYER_SURFACE_V1_ERROR_INVALID_ANCHOR = 2,
+    ZWLR_LAYER_SURFACE_V1_ERROR_INVALID_KEYBOARD_INTERACTIVITY = 3,
+    ZWLR_LAYER_SURFACE_V1_ERROR_INVALID_EXCLUSIVE_EDGE = 4,
+};
+enum zwlr_layer_surface_v1_anchor {
+    ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP = 1,
+    ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM = 2,
+    ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT = 4,
+    ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT = 8,
+};
+struct xdg_wm_base;
+struct xdg_positioner;
+struct xdg_surface;
+struct xdg_toplevel;
+extern const struct wl_interface xdg_wm_base_interface;
+extern const struct wl_interface xdg_positioner_interface;
+extern const struct wl_interface xdg_surface_interface;
+extern const struct wl_interface xdg_toplevel_interface;
+extern const struct wl_interface xdg_popup_interface;
 ]]
 
 return {

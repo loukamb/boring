@@ -18,6 +18,7 @@ A set of default plugins are included that provides basic window management and 
 - [`layout-stacking`](/plugins/layout-stacking.lua): Traditional stacking layout
 - [`layout-tiling`](/plugins/layout-tiling.lua): Sway-inspired n-ary tiling layout
 - [`layout-kiosk`](/plugins/layout-kiosk.lua): Runs a single, maximized window
+- [`workspaces`](/plugins/workspaces.lua): Several workspaces per output, shown to panels over `ext-workspace`
 - [`screenshot`](/plugins/screenshot.lua): Screenshot plugin
 - [`wallpaper`](/plugins/wallpaper.lua): Wallpaper plugin
 - [`xwayland`](/plugins/xwayland.lua): XWayland integration
@@ -169,7 +170,9 @@ When the config is saved, plugins it mounts with the same config (and an unchang
 
 Plugins don't require each other. Code shared between plugins goes in a library, `require("@boring/library/<name>")`, which is loaded once per compositor and kept across reloads.
 
-Events: `window:map`, `window:unmap`, `window:focus`, `window:blur`, `window:commit`, `window:title`, `output:add`, `output:change`, `output:remove`, `ready`, `shutdown`. Windows have `position`, `set_position`, `geometry`, `bounds`, `size`, `set_size`, `raise`, `close`, `title`, `app_id`, `set_enabled` and a `data` table for plugin state ([`compositor/window.lua`](/compositor/window.lua)). Layouts are registered with `boring.layout.register(name, impl)` ([`compositor/layout.lua`](/compositor/layout.lua) documents the interface). For anything else, `boring.wl` gives direct access to wlroots and `boring.server` to the compositor's objects.
+Events: `window:map`, `window:unmap`, `window:focus`, `window:blur`, `window:commit`, `window:title`, `window:fullscreen`, `window:maximize`, `output:add`, `output:change`, `output:usable`, `output:remove`, `ready`, `shutdown`. Windows have `position`, `set_position`, `geometry`, `bounds`, `size`, `set_size`, `raise`, `close`, `title`, `app_id`, `set_enabled`, `visible`, `set_fullscreen`, `set_maximized` and a `data` table for plugin state ([`compositor/window.lua`](/compositor/window.lua)).
+
+Core doesn't manage windows: a new window opens at the origin of the output under the cursor, and what clients ask for arrives as events (`window:request_move`, `window:request_resize`, `window:request_fullscreen`, `window:request_maximize`, `window:request_minimize`) for plugins to answer. `boring.begin_move`, `boring.begin_resize` and `boring.grab_pointer` are the tools for it. The layout plugins share [`library/spaces`](/plugins/library/spaces.lua), which documents how to write one. For anything else, `boring.wl` gives direct access to wlroots and `boring.server` to the compositor's objects.
 
 For examples on how to write plugins, see the [default plugins](/plugins/).
 

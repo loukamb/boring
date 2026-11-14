@@ -15,9 +15,14 @@
 --       app_id = function() -> string|nil
 --       moved = function(x, y)                           -- optional (X11 needs it)
 --       set_fullscreen = function(bool)                  -- optional
+--       set_maximized = function(bool)                   -- optional
+--       positioned = true                                -- optional: the client
+--                                                        -- picks its position (X11)
 --   }
 --
--- Plugins may keep their own per-window state in `window.data`.
+-- Where a window goes is up to plugins; core only puts a new window at the
+-- origin of the output under the cursor. Plugins may keep their own
+-- per-window state in `window.data`.
 
 local wl = require("shared.wl")
 
@@ -66,6 +71,30 @@ local function set_enabled(w, enabled)
     w.tree.node:set_enabled(enabled)
 end
 
+--- Shown (not hidden by a plugin with set_enabled(false)).
+local function visible(w)
+    return w.tree.node.enabled
+end
+
+--- Tell the client it's fullscreen (or not). Where the window goes is the
+--- caller's business. Emits window:fullscreen(w).
+local function set_fullscreen(w, on)
+    on = on and true or false
+    if w.fullscreen == on then return end
+    w.fullscreen = on
+    if w.impl.set_fullscreen then w.impl.set_fullscreen(on) end
+    w.server.events:emit("window:fullscreen", w)
+end
+
+--- Tell the client it's maximized (or not). Emits window:maximize(w).
+local function set_maximized(w, on)
+    on = on and true or false
+    if w.maximized == on then return end
+    w.maximized = on
+    if w.impl.set_maximized then w.impl.set_maximized(on) end
+    w.server.events:emit("window:maximize", w)
+end
+
 local function raise(w)
     w.tree.node:raise_to_top()
 end
@@ -109,7 +138,8 @@ function window.new(server, surface, tree, impl)
         server = server,
         mapped = false,
         activated = false,
-        monitor = nil, -- layout state of the monitor it lives on
+        fullscreen = false,
+        maximized = false,
         data = {},
 
         position = position,
@@ -119,6 +149,9 @@ function window.new(server, surface, tree, impl)
         bounds = bounds,
         set_size = set_size,
         set_enabled = set_enabled,
+        visible = visible,
+        set_fullscreen = set_fullscreen,
+        set_maximized = set_maximized,
         raise = raise,
         close = close,
         title = title,

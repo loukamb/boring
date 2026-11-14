@@ -1,11 +1,13 @@
 -- xdg-shell: toplevels become windows, popups attach to their parent's scene
 -- tree, and xdg-decoration negotiates server-side decorations.
+--
+-- Requests from the client (move, resize, fullscreen, maximize, minimize)
+-- become window:request_* events; plugins decide what they mean.
 
+local bit = require("bit")
 local wl = require("shared.wl")
 local window = require("compositor.window")
 local windows = require("compositor.windows")
-local layout = require("compositor.layout")
-local pointer = require("compositor.pointer")
 
 local ffi, lib, C = wl.ffi, wl.lib, wl.C
 local addr = wl.addr
@@ -36,6 +38,9 @@ local function toplevel_impl(xt)
         set_fullscreen = function(on)
             if base.initialized then xt:set_fullscreen(on) end
         end,
+        set_maximized = function(on)
+            if base.initialized then xt:set_maximized(on) end
+        end,
         close = function() xt:send_close() end,
         title = function() return wl.string(xt.title) end,
         app_id = function() return wl.string(xt.app_id) end,
@@ -57,11 +62,11 @@ local function new_toplevel(server, xt)
 
     scope:listen(surface_events.commit, function()
         if base.initial_commit then
-            -- Let the client pick its size; the layout configures it on map.
+            -- Let the client pick its size; plugins configure it on map.
             xt:set_size(0, 0)
-            xt:set_wm_capabilities(C.WLR_XDG_TOPLEVEL_WM_CAPABILITIES_FULLSCREEN)
+            xt:set_wm_capabilities(bit.bor(C.WLR_XDG_TOPLEVEL_WM_CAPABILITIES_FULLSCREEN,
+                C.WLR_XDG_TOPLEVEL_WM_CAPABILITIES_MAXIMIZE, C.WLR_XDG_TOPLEVEL_WM_CAPABILITIES_MINIMIZE))
         elseif w.mapped then
-            layout.position_window(w)
             server.events:emit("window:commit", w)
         end
     end)
@@ -72,30 +77,28 @@ local function new_toplevel(server, xt)
         scope:close()
     end)
 
+    -- Every request is answered with a configure, even if nothing changed.
+    local function configure()
+        if base.initialized then lib.wlr_xdg_surface_schedule_configure(base) end
+    end
+    local events = server.events
+
     scope:listen(xt.events.request_move, function()
-        pointer.begin_move(server, w)
+        if w.mapped then events:emit("window:request_move", w) end
     end)
     scope:listen(xt.events.request_resize, function(event)
-        pointer.begin_resize(server, w, event.edges)
+        if w.mapped then events:emit("window:request_resize", w, event.edges) end
     end, "struct wlr_xdg_toplevel_resize_event")
-
     scope:listen(xt.events.request_fullscreen, function()
-        if not w.mapped then
-            -- Must still answer with a configure.
-            if base.initialized then lib.wlr_xdg_surface_schedule_configure(base) end
-            return
-        end
-        if xt.requested.fullscreen then
-            layout.enter_fullscreen(w)
-        else
-            layout.exit_fullscreen(w.monitor)
-        end
-        if base.initialized then lib.wlr_xdg_surface_schedule_configure(base) end
+        if w.mapped then events:emit("window:request_fullscreen", w, xt.requested.fullscreen) end
+        configure()
     end)
-
     scope:listen(xt.events.request_maximize, function()
-        -- Not supported by the layouts: reply with an unchanged configure.
-        if base.initialized then lib.wlr_xdg_surface_schedule_configure(base) end
+        if w.mapped then events:emit("window:request_maximize", w, xt.requested.maximized) end
+        configure()
+    end)
+    scope:listen(xt.events.request_minimize, function()
+        if w.mapped then events:emit("window:request_minimize", w) end
     end)
 
     scope:listen(xt.events.set_title, function() server.events:emit("window:title", w) end)

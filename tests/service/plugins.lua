@@ -89,10 +89,15 @@ end }
     end)
 
     t.test("libraries load once per compositor", function()
-        local s = server()
-        local a = plugins.require(s, "@boring/layout-kiosk")
-        local b = plugins.require(s, "@boring/layout-kiosk")
+        local s, dir = setup()
+        local path = write_plugin(dir, "library", [[
+probe_log[#probe_log + 1] = "loaded"
+return { value = 1 }
+]])
+        local a = plugins.require(s, path)
+        local b = plugins.require(s, path)
         t.eq(a, b)
+        t.eq(table.concat(probe_log, ","), "loaded")
         t.ok(not pcall(plugins.require, s, "@boring/does-not-exist"))
     end)
 end

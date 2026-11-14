@@ -44,22 +44,16 @@ function actions.restart()
     boring().exit()
 end
 
+-- Fullscreen is a request, as if the focused window asked for it; the
+-- plugin managing the window decides.
 function actions.fullscreen()
     local w = boring().focused()
-    if w then boring().layout.toggle_fullscreen(w) end
+    if w then boring().events:emit("window:request_fullscreen", w, not w.fullscreen) end
 end
 
 function actions.exit_fullscreen()
     local w = boring().focused()
-    if w and w.monitor then boring().layout.exit_fullscreen(w.monitor) end
-end
-
-function actions.split_horizontal()
-    return boring().layout.split(boring().focused(), "horizontal")
-end
-
-function actions.split_vertical()
-    return boring().layout.split(boring().focused(), "vertical")
+    if w and w.fullscreen then boring().events:emit("window:request_fullscreen", w, false) end
 end
 
 -- Mouse actions, handled by compositor/pointer.lua.

@@ -102,6 +102,7 @@ local bindings = {
             "<wlr/types/wlr_linux_dmabuf_v1.h>",
             "<wlr/types/wlr_idle_notify_v1.h>",
             "<wlr/types/wlr_ext_foreign_toplevel_list_v1.h>",
+            "<wlr/types/wlr_ext_workspace_v1.h>",
             "<wlr/types/wlr_alpha_modifier_v1.h>",
             "<wlr/types/wlr_content_type_v1.h>",
             "<wlr/types/wlr_keyboard_shortcuts_inhibit_v1.h>",
@@ -122,7 +123,7 @@ local bindings = {
         -- Every declaration from these headers is a root.
         root_files = {
             "/wlr/", "/wayland%-server", "/wayland%-util%.h$", "/xkbcommon/",
-            "/libinput%.h$", "%-protocol%.h$",
+            "/libinput%.h$", "%-protocol%.h$", "/wayland%-protocols/.*%-enum%.h$",
         },
         -- Plus these individual symbols from system headers.
         root_symbols = {},

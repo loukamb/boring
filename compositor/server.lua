@@ -29,8 +29,6 @@ function server.new()
         surfaces = {},  -- addr(wlr_surface) -> window
         trees = {},     -- addr(window scene tree) -> window, for hit testing
         keyboards = {},
-        layouts = {},   -- name -> layout implementation (compositor/layout.lua)
-        monitors = {},  -- addr(wlr_output) -> layout state for that output
         layers = {},
         running = false,
         -- Hooks protocols fill in (compositor/protocols.lua):
@@ -84,6 +82,7 @@ end
 
 --- Tear everything down, in reverse order of creation.
 function server.destroy(s)
+    require("compositor.timer").cancel_all()
     s.scope:close()
     lib.wl_display_destroy_clients(s.display)
     s.scene.tree.node:destroy()

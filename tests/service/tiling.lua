@@ -1,21 +1,28 @@
 return function(t)
+    -- The plugin only needs spaces.of at load and in add; the tree code is
+    -- tested on its own.
+    package.preload["@boring/library/spaces"] = function() return { of = function() end } end
     local plugin = require("plugins.layout-tiling")
+    package.preload["@boring/library/spaces"] = nil
     local tiling = plugin._private.layout
     local private = plugin._private
+    tiling.gaps = { inner = 0, outer = 0, smart = false }
 
     local function surface(name)
         return { id = name }
     end
 
     local function state()
-        local monitor_state = {
+        local space = {
             output = {
                 usable = { x = 0, y = 0, width = 800, height = 600 },
             },
-            config = { gaps = { inner = 0, outer = 0, smart = false } },
+            windows = {},
+            data = {},
         }
-        tiling:init(monitor_state)
-        return monitor_state
+        tiling:init(space)
+        space.tiling = space.data.tiling
+        return space
     end
 
     t.test("tiling creates nested vertical split around focused container", function()

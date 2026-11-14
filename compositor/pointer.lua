@@ -1,14 +1,17 @@
--- Pointer: cursor motion, buttons, scrolling, mouse shortcuts and
--- interactive move/resize grabs.
+-- Pointer: cursor motion, buttons, scrolling, mouse shortcuts and pointer
+-- grabs.
 --
--- A grab is offered to the window's layout first (layout.begin_move/resize);
--- if the layout declines, the window is moved/resized freely here.
+-- A grab takes the pointer until it ends: { motion = fn(x, y), button =
+-- fn(button, pressed) -> true to end, finish = fn(cancelled), cursor, window }.
+-- Without a `button` handler, releasing a button ends it. Free move and
+-- resize (`boring.begin_move`, `boring.begin_resize`) are grabs; layouts use
+-- them or start their own. Core never decides to move a window: mouse
+-- shortcuts and client requests become window:request_move/resize events.
 
 local bit = require("bit")
 local wl = require("shared.wl")
 local log = require("shared.log")
 local state = require("compositor.state")
-local layout = require("compositor.layout")
 local windows = require("compositor.windows")
 local shortcuts = require("compositor.shortcuts")
 
@@ -23,83 +26,82 @@ local function set_cursor(server, name)
     lib.wlr_cursor_set_xcursor(server.cursor, server.cursor_mgr, name)
 end
 pointer.set_cursor = set_cursor
+pointer.resize_cursor = shortcuts.resize_cursor
 
 --------------------------------------------------------------------------------
 -- Grabs
 --------------------------------------------------------------------------------
 
-function pointer.begin_move(server, w)
-    if not w or not w.mapped then return end
-    local cursor = server.cursor
-    if layout.begin_move(w, cursor.x, cursor.y) then
-        server.grab = { window = w, mode = "move", layout = true, monitor = w.monitor }
-    else
-        local x, y = w:position()
-        server.grab = { window = w, mode = "move", dx = cursor.x - x, dy = cursor.y - y }
-    end
-    set_cursor(server, "grabbing")
+local function call(what, fn, ...)
+    local ok, err = xpcall(fn, debug.traceback, ...)
+    if not ok then log.error("pointer grab %s: %s", what, tostring(err)) end
+    return ok and err
 end
 
-function pointer.begin_resize(server, w, edges)
-    if not w or not w.mapped then return end
-    local cursor = server.cursor
-    if layout.begin_resize(w, cursor.x, cursor.y, edges) then
-        server.grab = { window = w, mode = "resize", layout = true, monitor = w.monitor, edges = edges }
-    else
-        local b = w:bounds()
-        local edge_x = bit.band(edges, C.WLR_EDGE_RIGHT) ~= 0 and b.x + b.width or b.x
-        local edge_y = bit.band(edges, C.WLR_EDGE_BOTTOM) ~= 0 and b.y + b.height or b.y
-        server.grab = {
-            window = w, mode = "resize", edges = edges, box = b,
-            dx = cursor.x - edge_x, dy = cursor.y - edge_y,
-        }
-    end
-    set_cursor(server, shortcuts.resize_cursor(edges))
-end
-
-function pointer.end_grab(server)
+--- End the current grab (if any). `cancelled` is passed to its finish.
+function pointer.end_grab(server, cancelled)
     local grab = server.grab
     if not grab then return end
     server.grab = nil
-    if grab.layout and grab.monitor then
-        if grab.mode == "move" then layout.end_move(grab.monitor) else layout.end_resize(grab.monitor) end
-    end
+    lib.wlr_seat_pointer_clear_focus(server.seat)
     set_cursor(server, "default")
+    if grab.finish then call("finish", grab.finish, cancelled or false) end
 end
 
-local function update_grab(server, grab)
-    local cx, cy = server.cursor.x, server.cursor.y
-    if grab.layout then
-        if grab.mode == "move" then
-            layout.update_move(grab.monitor, cx, cy)
-        else
-            layout.update_resize(grab.monitor, cx, cy)
-        end
-        return
+--- Take the pointer (see the top of this file). Ends any grab in progress.
+--- Returns a function that ends this grab.
+function pointer.grab(server, handlers)
+    pointer.end_grab(server, true)
+    server.grab = handlers
+    lib.wlr_seat_pointer_clear_focus(server.seat)
+    set_cursor(server, handlers.cursor or "default")
+    return function()
+        if server.grab == handlers then pointer.end_grab(server) end
     end
+end
 
-    local w = grab.window
-    if grab.mode == "move" then
-        w:set_position(cx - grab.dx, cy - grab.dy)
-        return
-    end
+--- Move a window with the pointer until the button is released.
+function pointer.begin_move(server, w)
+    if not w or not w.mapped then return end
+    local cursor = server.cursor
+    local x, y = w:position()
+    local dx, dy = cursor.x - x, cursor.y - y
+    pointer.grab(server, {
+        window = w,
+        cursor = "grabbing",
+        motion = function(cx, cy) w:set_position(cx - dx, cy - dy) end,
+    })
+end
 
-    local b, edges = grab.box, grab.edges
-    local left, top, right, bottom = b.x, b.y, b.x + b.width, b.y + b.height
-    local ex, ey = cx - grab.dx, cy - grab.dy
-    if bit.band(edges, C.WLR_EDGE_TOP) ~= 0 then
-        top = math.min(ey, bottom - 1)
-    elseif bit.band(edges, C.WLR_EDGE_BOTTOM) ~= 0 then
-        bottom = math.max(ey, top + 1)
-    end
-    if bit.band(edges, C.WLR_EDGE_LEFT) ~= 0 then
-        left = math.min(ex, right - 1)
-    elseif bit.band(edges, C.WLR_EDGE_RIGHT) ~= 0 then
-        right = math.max(ex, left + 1)
-    end
-    local g = w:geometry()
-    w:set_position(left - g.x, top - g.y)
-    w:set_size(right - left, bottom - top)
+--- Resize a window by its `edges` (WLR_EDGE_*) until the button is released.
+function pointer.begin_resize(server, w, edges)
+    if not w or not w.mapped then return end
+    local cursor = server.cursor
+    local b = w:bounds()
+    local edge_x = bit.band(edges, C.WLR_EDGE_RIGHT) ~= 0 and b.x + b.width or b.x
+    local edge_y = bit.band(edges, C.WLR_EDGE_BOTTOM) ~= 0 and b.y + b.height or b.y
+    local dx, dy = cursor.x - edge_x, cursor.y - edge_y
+    pointer.grab(server, {
+        window = w,
+        cursor = shortcuts.resize_cursor(edges),
+        motion = function(cx, cy)
+            local left, top, right, bottom = b.x, b.y, b.x + b.width, b.y + b.height
+            local ex, ey = cx - dx, cy - dy
+            if bit.band(edges, C.WLR_EDGE_TOP) ~= 0 then
+                top = math.min(ey, bottom - 1)
+            elseif bit.band(edges, C.WLR_EDGE_BOTTOM) ~= 0 then
+                bottom = math.max(ey, top + 1)
+            end
+            if bit.band(edges, C.WLR_EDGE_LEFT) ~= 0 then
+                left = math.min(ex, right - 1)
+            elseif bit.band(edges, C.WLR_EDGE_RIGHT) ~= 0 then
+                right = math.max(ex, left + 1)
+            end
+            local g = w:geometry()
+            w:set_position(left - g.x, top - g.y)
+            w:set_size(right - left, bottom - top)
+        end,
+    })
 end
 
 --------------------------------------------------------------------------------
@@ -110,7 +112,7 @@ local function motion(server, time_msec)
     server.on_activity()
     local grab = server.grab
     if grab then
-        update_grab(server, grab)
+        if grab.motion then call("motion", grab.motion, server.cursor.x, server.cursor.y) end
         return
     end
     local seat = server.seat
@@ -139,6 +141,7 @@ local function run_action(name, action, ...)
 end
 
 -- Built-in string actions for mouse shortcuts (see config/action/window.lua).
+-- Window actions become requests, as if the client asked.
 local function mouse_action(server, s, w)
     local action = s.action
     if type(action) == "function" then
@@ -146,15 +149,15 @@ local function mouse_action(server, s, w)
     elseif action == "move_window" or action == "drag_window" then
         if w then
             windows.focus(server, w)
-            pointer.begin_move(server, w)
+            server.events:emit("window:request_move", w)
         end
     elseif action == "resize_window" then
         if w then
             windows.focus(server, w)
-            pointer.begin_resize(server, w, quadrant_edges(w, server.cursor.x, server.cursor.y))
+            server.events:emit("window:request_resize", w, quadrant_edges(w, server.cursor.x, server.cursor.y))
         end
     elseif action == "fullscreen" then
-        if w then layout.toggle_fullscreen(w) end
+        if w then server.events:emit("window:request_fullscreen", w, not w.fullscreen) end
     else
         log.warn("unknown mouse action %s for %s", tostring(action), s.name)
     end
@@ -178,10 +181,21 @@ local function button(server, event)
     local seat = server.seat
     local cx, cy = server.cursor.x, server.cursor.y
 
-    if event.state == C.WL_POINTER_BUTTON_STATE_RELEASED then
-        if server.grab then
+    local pressed = event.state == C.WL_POINTER_BUTTON_STATE_PRESSED
+    local grab = server.grab
+    if grab then
+        -- The seat has no pointer focus during a grab; this only keeps its
+        -- button state right.
+        seat:pointer_notify_button(event.time_msec, event.button, event.state)
+        if grab.button then
+            if call("button", grab.button, event.button, pressed) == true then pointer.end_grab(server) end
+        elseif not pressed then
             pointer.end_grab(server)
         end
+        return
+    end
+
+    if not pressed then
         seat:pointer_notify_button(event.time_msec, event.button, event.state)
         return
     end

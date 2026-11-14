@@ -79,10 +79,11 @@ local function run_file(server, path, source)
     return result
 end
 
---- `require` for config and plugins: `@boring/...` resolves to the plugin
---- directories and is loaded once per compositor; anything else is Lua's.
+--- `require` for config and plugins: `@boring/...` and paths to .lua files
+--- resolve like plugins and load once per compositor; anything else is Lua's.
 function plugin.require(server, name)
-    if name:sub(1, 1) ~= "@" then return require(name) end
+    local is_path = name:match("%.lua$") and name:find("/", 1, true)
+    if name:sub(1, 1) ~= "@" and not is_path then return require(name) end
     local r = registry(server)
     local path = paths.resolve_plugin(name)
     if not path then error("module not found: " .. name, 2) end
