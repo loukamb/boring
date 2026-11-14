@@ -38,14 +38,32 @@ only ever *called*, never generated or patched at runtime.
 9. **Hot paths stay JIT-friendly.** Per-frame and per-input-event code avoids
    closures created per call, `pcall`, vararg-heavy helpers, table churn and
    C→Lua callbacks. Cache `ffi.new` scratch buffers at module level.
+10. **Core doesn't manage windows.** Core maps windows, gives them focus and
+    input, and tells plugins what clients ask for (`window:request_move`,
+    `window:request_fullscreen`, …). Where a window goes, how big it is,
+    which ones are visible and what fullscreen means are decided by plugins.
+    With no plugin mounted, windows open at the origin of their output and
+    stay there.
+11. **Plugins are independent.** A plugin requires only `boring` and plugin
+    libraries (`plugins/library/`), never another plugin. Plugins that need
+    to cooperate do it through shared window properties (`w.props`) and
+    events, without knowing each other.
+12. **Use what's installed.** Where the system provides an implementation
+    (D-Bus, fonts, image codecs), bind it through the FFI instead of
+    reimplementing it, and support the common implementations first-class.
+    When none is available, the feature warns and turns itself off; it never
+    takes the compositor down.
 
 ## Layers
 
 Each layer may only `require` layers below it.
 
 ```
-plugins/           Layouts, borders, wallpaper, screenshots, XWayland
-                   (only the `boring` API: compositor/api.lua)
+plugins/           Layouts, borders, wallpaper, screenshots, XWayland, …
+                   (only the `boring` API and plugin libraries)
+plugins/library/   Code shared by plugins but not part of core: window
+                   management (spaces), workspaces, fullscreen, text,
+                   animation, UI widgets
 compositor/        The compositor: modules sharing one `server` record
 shared/wl/         Lua helpers over the bindings: listener trampoline, scope,
                    wl_list iteration, metatypes for wlroots structs, buffers
@@ -73,7 +91,7 @@ no module-level singletons to reach into.
 | `shortcuts.lua` | Parsing and matching shortcut strings (pure) |
 | `window.lua` | The window object: generic core + role implementation |
 | `windows.lua` | Map/unmap, focus, hit testing |
-| `layout.lua` | Per-monitor layout state, delegation to layout plugins |
+| `layout.lua` | Per-monitor layout state, delegation to layout plugins (moves to `plugins/library/`, step 7) |
 | `xdg_shell.lua` | xdg toplevels → windows, popups, decorations |
 | `layer_shell.lua` | Layer surfaces, exclusive zones, usable area |
 | `session_lock.lua` | ext-session-lock: lock screens, fail-closed |
@@ -83,6 +101,8 @@ no module-level singletons to reach into.
 | `api.lua` | The `boring` API for config and plugins |
 | `process.lua` | Child processes, reaped via SIGCHLD on the event loop |
 | `watch.lua` | inotify on the event loop (config reload on save) |
+| `plugin.lua` | Loading and mounting plugins |
+| `state.lua` | Loading and reloading the config file |
 | `config/` | Config sandbox, rules (`monitor`, `input`), `actions` |
 
 Startup order (`compositor/init.lua`): server → modules → config (which
@@ -156,3 +176,96 @@ a smoke test in the VM display.
    power, idle notify, gestures, ext-image-copy-capture, ext-foreign-toplevel-list
    and more ([PROTOCOLS.md](PROTOCOLS.md)), with integration tests driving them
    through real clients.
+
+### Plugins
+
+6. **Plugin contract and loader.** A plugin is `{ name, mount(config, ctx),
+   unmount? }`. `ctx.scope` is created by the loader and closed on unmount,
+   so most plugins need no `unmount`; `ctx.state` is a table that survives
+   config reloads. A reload only remounts plugins whose file or config
+   changed. Plugin libraries (`require("@boring/library/<name>")`) load once
+   per compositor and keep their state across reloads. The plugin registry
+   lives on `server`, with one path resolver. `switch.lua` becomes
+   `boring.lua`: `./boring.lua` starts the compositor, `./boring.lua run
+   <module>` runs one of boring's programs.
+7. **Window management out of core.** `compositor/layout.lua` moves to
+   `library/spaces`: a space is an area, its windows and its arrangement;
+   layout plugins register arrangements with it. Core keeps interactive
+   move/resize as a tool (`boring.begin_move`), and turns client requests
+   (move, resize, fullscreen, maximize, minimize) into events instead of
+   calling layouts. Window placement comes out of the monitor rules: which
+   layout a space uses is the layout plugins' configuration.
+   `library/workspaces` builds on spaces: several per output, one shown,
+   `ext-workspace` for panels.
+8. **Shared libraries and clean-up.** `library/text` (text into scene
+   buffers: font, colour, max width, ellipsis; taken out of stacking),
+   `library/fullscreen` (save geometry, fill the output, restore; used by
+   every layout instead of three copies), `color.float4` for the
+   premultiplied colours written three times today. Tiling loses its
+   `surface` naming and wrappers and gains keyboard commands (directional
+   focus and move, split direction, resize). Stacking gets maximize and
+   minimize. Urgency (`xdg_activation`, the X11 urgency hint) becomes a
+   `window:urgent` event, so borders' `urgent` colour does something.
+9. **`library/animate`.** Plugins take plain values or animations
+   (`animate.pulse`, `animate.ease`, …, plain tables) without telling them
+   apart: `animate.bind(scope, value, apply)` calls `apply(v)` once for a
+   plain value and every frame while an animation runs;
+   `animate.to(binding, target)` starts a transition. Frames are scheduled
+   only while something moves. Borders, stacking and wallpaper take
+   animated values; an `animations` plugin animates windows opening and
+   closing.
+10. **`rules`, `ipc`, `idle`, `layout-master`.**
+    - `rules` mounts one function, called for each window before it maps,
+      returning properties (`floating`, `size`, `workspace`, `fullscreen`,
+      `border`, …) merged into `w.props`. Plugins read the properties they
+      understand. Core emits `window:configure` before `window:map` for it.
+    - `ipc`: `./boring.lua -e '<lua>'` runs Lua inside the running
+      compositor, in the config environment, and prints what it returns;
+      `-e -` reads stdin, `-i` is a REPL. A Unix socket at
+      `$XDG_RUNTIME_DIR/boring-$WAYLAND_DISPLAY`, mode 0600 (not a Wayland
+      protocol: any Wayland client, sandboxed ones included, could use it).
+    - `idle`: lock and/or turn outputs off after a timeout, honouring idle
+      inhibitors.
+    - `layout-master`: master and stack.
+11. **`library/ui`.** Widgets drawn in the scene (box, text, image, list,
+    input, button), row/column layout, themes as plain tables overridable from
+    config. Core gets `boring.grab_keyboard(fn)` / `boring.grab_pointer(fn)`
+    so compositor-drawn UI can take input.
+12. **Launcher** (in the default config). A centred search field with live
+    results, keyboard-first. Desktop entries from
+    `$XDG_DATA_DIRS/applications` (field codes, `Terminal=true`), icons from
+    the icon theme, fuzzy matching ranked by use (`ctx.state`, saved to
+    disk). Sources are functions, so windows, a calculator or commands are a
+    few lines each.
+13. **Screenshots without external tools.** The compositor renders the
+    output's scene into a buffer itself; select a region or click a window;
+    an editor built on `library/ui` to blur regions (box blur on the pixels)
+    and draw (pen, rectangle, arrow); save as PNG through libvips; copy
+    through a clipboard data source implemented in Lua. No grim, slurp or
+    wl-copy.
+14. **Notifications.** Cards stacked in a corner (icon, title, body,
+    actions), sliding in through `library/animate`; expiry, click, do not
+    disturb, history over `ipc`. Implements `org.freedesktop.Notifications`
+    over the installed D-Bus client library (`shared/dbus`, below). Without
+    one, or without a session bus, the plugin warns and does nothing.
+
+### D-Bus
+
+boring doesn't implement D-Bus; it binds a client library that's already
+installed. Bus daemons (dbus-daemon, dbus-broker) speak the same protocol, so
+only the client library matters. `shared/dbus` exposes one small interface
+(connect to the session bus, own a name, export methods, emit signals, call)
+over two backends, tried in order:
+
+| Backend | Libraries (same API) | Where |
+| --- | --- | --- |
+| sd-bus | `libsystemd.so.0`, `libelogind.so.0`, `libbasu.so.0` | systemd distros; elogind (Gentoo, Artix, Void); basu (Alpine, FreeBSD) |
+| libdbus | `libdbus-1.so.3` | Practically everywhere else |
+
+sd-bus comes first: the connection is one fd plus a timeout
+(`sd_bus_get_fd`, `sd_bus_get_events`, `sd_bus_get_timeout`,
+`sd_bus_process`), which maps directly onto `wl_event_loop` with no C→Lua
+watch callbacks. libdbus needs watch and timeout callbacks
+(`dbus_connection_set_watch_functions`), a few `ffi.cast`s at connection
+setup. GDBus (gio, pulled in by libvips) is left out: it wants a GLib main
+loop.
