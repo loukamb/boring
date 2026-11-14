@@ -11,6 +11,12 @@ local monitor = monitor.new({
 -- initialize the screenshot picker.
 local screenshot = plugin("@boring/screenshot"):mount()
 
+-- The launcher: a search field for applications, windows and
+-- arithmetic. Super+Space opens it.
+local launcher = plugin("@boring/launcher"):mount({
+    terminal = "foot",
+})
+
 -- Create our keyboard input device. This will apply
 -- to all keyboards.
 input.keyboard.new({
@@ -29,6 +35,7 @@ input.keyboard.new({
         ["Mod4+q"] = actions.close,
         ["Mod4+Shift+q"] = actions.exit,
         ["Mod4+c"] = actions.reload,
+        ["Mod4+space"] = launcher.actions.toggle,
 
         -- Screenshot-related binds.
         ["PrintScreen"] = screenshot.actions.area,

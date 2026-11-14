@@ -202,4 +202,23 @@ return view:click(view.x + b.x + b.width / 2, view.y + b.y + b.height / 2)]]), "
             ipc("view:close()")
         end)
     end)
+
+    t.test("the launcher searches applications and runs one with Enter", function()
+        if not (have("wtype") and have("foot")) then t.skip("wtype/foot not installed") end
+        with_compositor(function(c, ipc, wait)
+            local out, ok = ipc([[launcher = plugin("@boring/launcher"):mount({ terminal = "foot" })
+launcher.actions.open() return launcher.is_open()]])
+            t.eq(out, "true", out)
+            c.exec("wtype foot; sleep 0.3")
+            out = ipc([[local titles = {} for i, r in ipairs(launcher.results()) do titles[i] = r.title end
+return table.concat(titles, ",")]])
+            t.ok(out:find("Foot", 1, true), out)
+            ipc("launcher.query('2 * (3 + 4)')")
+            t.eq(ipc("launcher.results()[1].title"), '"14"')
+            ipc("launcher.query('foot')")
+            c.exec("wtype -k Return; sleep 0.2")
+            t.eq(ipc("launcher.is_open()"), "false")
+            wait("#boring.windows() > 0", "foot to open")
+        end)
+    end)
 end

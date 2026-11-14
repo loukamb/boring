@@ -18,6 +18,7 @@ A set of default plugins are included that provides basic window management and 
 - [`borders`](/plugins/borders.lua): Draw borders around windows
 - [`idle`](/plugins/idle.lua): Lock and turn the screens off after a while without input
 - [`ipc`](/plugins/ipc.lua): Run Lua in the running compositor: `./boring.lua -e 'return #boring.windows()'`, or `./boring.lua -i` for a REPL
+- [`launcher`](/plugins/launcher.lua): A search field for applications, windows and arithmetic (Super+Space in the default config)
 - [`layout-master`](/plugins/layout-master.lua): Master and stack layout
 - [`layout-stacking`](/plugins/layout-stacking.lua): Traditional stacking layout
 - [`layout-tiling`](/plugins/layout-tiling.lua): Sway-inspired n-ary tiling layout
@@ -28,7 +29,7 @@ A set of default plugins are included that provides basic window management and 
 - [`wallpaper`](/plugins/wallpaper.lua): Wallpaper plugin
 - [`xwayland`](/plugins/xwayland.lua): XWayland integration
 
-The [default configuration](/default.lua) automatically mounts `animations`, `borders`, `ipc`, `layout-stacking`, `screenshot`, `wallpaper`, and `xwayland`. The documentation for each plugin can be found in their respective files.
+The [default configuration](/default.lua) automatically mounts `animations`, `borders`, `ipc`, `launcher`, `layout-stacking`, `screenshot`, `wallpaper`, and `xwayland`. The documentation for each plugin can be found in their respective files.
 
 ## Usage
 
@@ -180,6 +181,7 @@ Plugins don't require each other. Code shared between plugins goes in a library,
 - [`fullscreen`](/plugins/library/fullscreen.lua): fill an output and put the window back afterwards
 - [`text`](/plugins/library/text.lua): text drawn into the scene, with ellipsis and wrapping
 - [`animate`](/plugins/library/animate.lua): animated values; borders, stacking and wallpaper colours take them anywhere they take a colour
+- [`desktop`](/plugins/library/desktop.lua): desktop entries (localised, filtered, field codes) and icon theme lookup
 - [`ui`](/plugins/library/ui.lua): widgets the compositor draws itself (text, images, boxes with rounded corners, rows, columns, buttons, inputs, lists), themed with plain tables; `boring.grab_keyboard` and `boring.grab_pointer` give them input
 
 Events: `window:map`, `window:unmap`, `window:focus`, `window:blur`, `window:commit`, `window:title`, `window:fullscreen`, `window:maximize`, `window:urgent`, `output:add`, `output:change`, `output:usable`, `output:remove`, `ready`, `shutdown`. Windows have `position`, `set_position`, `geometry`, `bounds`, `size`, `set_size`, `raise`, `close`, `title`, `app_id`, `set_enabled`, `visible`, `set_fullscreen`, `set_maximized`, `set_urgent` and a `data` table for plugin state ([`compositor/window.lua`](/compositor/window.lua)).

@@ -231,7 +231,7 @@ a smoke test in the VM display.
     input, button), row/column layout, themes as plain tables overridable from
     config. Core gets `boring.grab_keyboard(fn)` / `boring.grab_pointer(fn)`
     so compositor-drawn UI can take input.
-12. **Launcher** (in the default config). A centred search field with live
+12. ~~**Launcher**~~ Done (in the default config). A centred search field with live
     results, keyboard-first. Desktop entries from
     `$XDG_DATA_DIRS/applications` (field codes, `Terminal=true`), icons from
     the icon theme, fuzzy matching ranked by use (`ctx.state`, saved to
