@@ -170,4 +170,36 @@ master = plugin("@boring/layout-master"):mount({ ratio = 0.5, gaps = { inner = 0
             t.eq(ipc("boring.outputs()[1].wlr.enabled"), "true", out)
         end)
     end)
+
+    t.test("keyboard grabs feed ui inputs; views route clicks", function()
+        if not have("wtype") then t.skip("wtype not installed") end
+        with_compositor(function(c, ipc)
+            local out, ok = ipc([[
+ui = require("@boring/library/ui")
+field = { value = "" }
+clicked = nil
+view = ui.view({
+    render = function()
+        return ui.box(ui.column({
+            ui.input({ value = field.value, cursor = field.cursor, placeholder = "Search" }),
+            ui.button("Go", function() clicked = field.value end),
+        }), { padding = 10, radius = 8, background = "#000000" })
+    end,
+    place = function() return 100, 100 end,
+})
+release = boring.grab_keyboard({ key = function(ev) if ui.edit(field, ev) then view:update() end end })
+return view.width > 0]])
+            t.ok(ok, out)
+            c.exec("wtype hello; wtype -k BackSpace; wtype -M ctrl -k BackSpace -m ctrl; wtype 'hi there'; sleep 0.3")
+            t.eq(ipc("field.value"), '"hi there"')
+            -- Clients don't see keys while the grab lasts; releasing restores focus.
+            t.eq(ipc("boring.server.seat.keyboard_state.focused_surface == nil"), "true")
+            ipc("release()")
+            -- The button is the last target; click its middle.
+            t.eq(ipc([[local b = view.targets[#view.targets]
+return view:click(view.x + b.x + b.width / 2, view.y + b.y + b.height / 2)]]), "true")
+            t.eq(ipc("clicked"), '"hi there"')
+            ipc("view:close()")
+        end)
+    end)
 end

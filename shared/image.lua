@@ -1,5 +1,6 @@
 --- Image processing utilities using libvips
 ---@class shared.image
+local bit = require("bit")
 local ffi = require("ffi")
 
 ffi.cdef [[
@@ -65,6 +66,7 @@ int vips_image_write_to_file(VipsImage *in, const char *name, ...);
 
 int vips_resize(VipsImage *in, VipsImage **out, double scale, ...);
 int vips_thumbnail_image(VipsImage *in, VipsImage **out, int width, ...);
+int vips_thumbnail(const char *filename, VipsImage **out, int width, ...);
 int vips_smartcrop(VipsImage *in, VipsImage **out, int width, int height, ...);
 int vips_crop(VipsImage *in, VipsImage **out, int left, int top, int width, int height, ...);
 int vips_embed(VipsImage *in, VipsImage **out, int x, int y, int width, int height, ...);
@@ -327,6 +329,54 @@ function image.text(text, font, dpi, wrap)
     image.free_buffer(ptr)
     img:free()
     return width, height, bytes
+end
+
+--- An image file scaled to fit size x size (SVGs are drawn at that size),
+--- as premultiplied ARGB: width, height and a string of uint32 pixels.
+--- Nil, err if it can't be read.
+---@param path string
+---@param size number
+function image.icon(path, size)
+    ensure_init()
+    local out = ffi.new("VipsImage*[1]")
+    if vips.vips_thumbnail(path, out, size, "height", ffi.cast("int", size), nil) ~= 0 then
+        local err = ffi.string(vips.vips_error_buffer())
+        vips.vips_error_clear()
+        return nil, err
+    end
+    local img = wrap_image(out[0])
+    -- Any band count/format: to sRGB 8-bit with alpha.
+    local srgb = ffi.new("VipsImage*[1]")
+    if vips.vips_colourspace(img._img, srgb, 22 --[[ VIPS_INTERPRETATION_sRGB ]], nil) == 0 then
+        img:free()
+        img = wrap_image(srgb[0])
+    else
+        vips.vips_error_clear()
+    end
+    local cast = ffi.new("VipsImage*[1]")
+    if vips.vips_cast(img._img, cast, 0 --[[ VIPS_FORMAT_UCHAR ]], nil) == 0 then
+        img:free()
+        img = wrap_image(cast[0])
+    else
+        vips.vips_error_clear()
+    end
+    local with_alpha = img:add_alpha()
+    if with_alpha ~= img then img:free() end
+    img = with_alpha
+    local width, height, bands = img:width(), img:height(), img:bands()
+    local ptr = img:write_to_memory()
+    local src = ffi.cast("uint8_t *", ptr)
+    local pixels = ffi.new("uint32_t[?]", width * height)
+    for i = 0, width * height - 1 do
+        local o = i * bands
+        local a = src[o + 3]
+        local k = a / 255
+        pixels[i] = bit.bor(bit.lshift(a, 24), bit.lshift(math.floor(src[o] * k + 0.5), 16),
+            bit.lshift(math.floor(src[o + 1] * k + 0.5), 8), math.floor(src[o + 2] * k + 0.5))
+    end
+    image.free_buffer(ptr)
+    img:free()
+    return width, height, ffi.string(pixels, width * height * 4)
 end
 
 function image.free_buffer(ptr)

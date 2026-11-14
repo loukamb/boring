@@ -1,10 +1,17 @@
 -- Keyboards: keymaps and repeat from the config, compositor shortcuts, and
 -- forwarding everything else to the focused client.
+--
+-- A keyboard grab (keyboard.grab, boring.grab_keyboard) takes every key
+-- before shortcuts and clients, for UI the compositor draws itself (the
+-- launcher). It gets { sym, name, text, mods, pressed, ["repeat"] }; held
+-- keys repeat at the keyboard's rate. A lock screen still wins.
 
+local bit = require("bit")
 local wl = require("shared.wl")
 local log = require("shared.log")
 local state = require("compositor.state")
 local shortcuts = require("compositor.shortcuts")
+local loop = require("compositor.loop")
 
 local ffi, lib, C = wl.ffi, wl.lib, wl.C
 
@@ -43,10 +50,113 @@ local function set_keymap(wlr_keyboard, xkb)
     lib.xkb_context_unref(context)
 end
 
+--------------------------------------------------------------------------------
+-- Grabs
+--------------------------------------------------------------------------------
+
+local text_buf = ffi.new("char[64]")
+local name_buf = ffi.new("char[64]")
+
+local MODS = {
+    shift = C.WLR_MODIFIER_SHIFT, ctrl = C.WLR_MODIFIER_CTRL, alt = C.WLR_MODIFIER_ALT,
+    logo = C.WLR_MODIFIER_LOGO, caps = C.WLR_MODIFIER_CAPS,
+}
+
+-- The key event a grab sees.
+local function describe(wlr_keyboard, keycode, pressed)
+    local xkb_state = wlr_keyboard.xkb_state
+    local sym = lib.xkb_state_key_get_one_sym(xkb_state, keycode + 8)
+    local n = lib.xkb_keysym_get_name(sym, name_buf, 64)
+    local len = lib.xkb_state_key_get_utf8(xkb_state, keycode + 8, text_buf, 64)
+    local text = len > 0 and ffi.string(text_buf, len) or ""
+    -- Control characters (Return, BackSpace, Escape, Tab) aren't text.
+    if #text == 1 and (text:byte() < 32 or text:byte() == 127) then text = "" end
+    local mask, mods = wlr_keyboard:get_modifiers(), {}
+    for name, bit_value in pairs(MODS) do
+        if bit.band(mask, bit_value) ~= 0 then mods[name] = true end
+    end
+    return {
+        sym = tonumber(sym),
+        name = n > 0 and ffi.string(name_buf) or "",
+        text = text,
+        mods = mods,
+        pressed = pressed,
+        keycode = keycode,
+    }
+end
+
+local function stop_repeat(server)
+    local g = server.keyboard_grab
+    if g and g.cancel_repeat then
+        g.cancel_repeat()
+        g.cancel_repeat = nil
+    end
+end
+
+local function deliver(g, ev)
+    local ok, err = xpcall(g.key, debug.traceback, ev)
+    if not ok then log.error("keyboard grab: %s", tostring(err)) end
+end
+
+local function grab_key(server, kb, event)
+    local g = server.keyboard_grab
+    local pressed = event.state == C.WL_KEYBOARD_KEY_STATE_PRESSED
+    stop_repeat(server)
+    local ev = describe(kb.wlr, event.keycode, pressed)
+    deliver(g, ev)
+    -- Repeat a held key (not modifiers) while the grab lasts.
+    if pressed and server.keyboard_grab == g
+        and lib.xkb_keymap_key_repeats(kb.wlr.keymap, event.keycode + 8) ~= 0 then
+        local rate, delay = kb.wlr.repeat_info.rate, kb.wlr.repeat_info.delay
+        if rate > 0 then
+            g.cancel_repeat = loop.after(server, delay, function()
+                if server.keyboard_grab ~= g then return end
+                local again = describe(kb.wlr, event.keycode, true)
+                again["repeat"] = true
+                deliver(g, again)
+                return 1000 / rate
+            end)
+        end
+    end
+end
+
+--- End the keyboard grab (if any); its finish(cancelled) runs.
+function keyboard.end_grab(server, cancelled)
+    local g = server.keyboard_grab
+    if not g then return end
+    stop_repeat(server)
+    server.keyboard_grab = nil
+    require("compositor.windows").restore_keyboard(server)
+    if g.finish then
+        local ok, err = xpcall(g.finish, debug.traceback, cancelled or false)
+        if not ok then log.error("keyboard grab: %s", tostring(err)) end
+    end
+end
+
+--- Take the keyboard: handlers = { key = fn(event), finish = fn(cancelled) }.
+--- Returns a function that ends this grab.
+function keyboard.grab(server, handlers)
+    keyboard.end_grab(server, true)
+    server.keyboard_grab = handlers
+    -- Clients lose the keyboard while the grab lasts.
+    lib.wlr_seat_keyboard_notify_clear_focus(server.seat)
+    return function()
+        if server.keyboard_grab == handlers then keyboard.end_grab(server) end
+    end
+end
+
+--------------------------------------------------------------------------------
+-- Keys
+--------------------------------------------------------------------------------
+
 local function key(server, kb, event)
     local wlr_keyboard = kb.wlr
     local seat = server.seat
     server.on_activity()
+    if server.keyboard_grab and not server.locked then
+        grab_key(server, kb, event)
+        return
+    end
     if event.state == C.WL_KEYBOARD_KEY_STATE_PRESSED and not server.locked
         and not server.shortcuts_inhibited() then
         local mods = wlr_keyboard:get_modifiers()

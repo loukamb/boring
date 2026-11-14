@@ -41,9 +41,10 @@ local function remove(list, item)
     return false
 end
 
---- Is the keyboard held by a lock screen or an exclusive layer surface?
+--- Is the keyboard held by a lock screen, an exclusive layer surface or a
+--- compositor keyboard grab?
 function windows.keyboard_grabbed(server)
-    return server.locked ~= nil or server.exclusive_focus ~= nil
+    return server.locked ~= nil or server.exclusive_focus ~= nil or server.keyboard_grab ~= nil
 end
 
 local function keyboard_enter(server, surface)
@@ -96,8 +97,10 @@ function windows.blur(server)
     server.events:emit("window:blur", prev)
 end
 
---- Re-send keyboard focus to the focused window (after a layer surface let go).
+--- Re-send keyboard focus to the focused window (after a layer surface or
+--- a keyboard grab let go).
 function windows.restore_keyboard(server)
+    if windows.keyboard_grabbed(server) then return end
     if server.focused then
         keyboard_enter(server, server.focused.surface)
     else

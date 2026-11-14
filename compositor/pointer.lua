@@ -2,7 +2,8 @@
 -- grabs.
 --
 -- A grab takes the pointer until it ends: { motion = fn(x, y), button =
--- fn(button, pressed) -> true to end, finish = fn(cancelled), cursor, window }.
+-- fn(button, pressed) -> true to end, axis = fn(steps), finish =
+-- fn(cancelled), cursor, window }.
 -- Without a `button` handler, releasing a button ends it. Free move and
 -- resize (`boring.begin_move`, `boring.begin_resize`) are grabs; layouts use
 -- them or start their own. Core never decides to move a window: mouse
@@ -240,6 +241,11 @@ end
 
 local function axis(server, event)
     server.on_activity()
+    local grab = server.grab
+    if grab then
+        if grab.axis and event.delta ~= 0 then call("axis", grab.axis, event.delta > 0 and 1 or -1) end
+        return
+    end
     if event.delta ~= 0 then
         local s = shortcuts.match_mouse(server.mouse_shortcuts, server.modifiers or 0, "scroll")
         if s and type(s.action) == "function" then

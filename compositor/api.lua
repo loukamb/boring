@@ -103,10 +103,19 @@ function api.create(server)
     function boring.begin_resize(w, edges) pointer.begin_resize(server, w, edges) end
 
     --- Take the pointer: { motion = fn(x, y), button = fn(button, pressed)
-    --- -> true to end, finish = fn(cancelled), cursor = name, window = w }.
+    --- -> true to end, axis = fn(steps), finish = fn(cancelled), cursor =
+    --- name, window = w }.
     --- Without `button`, releasing a button ends the grab. Returns a
     --- function that ends it.
     function boring.grab_pointer(handlers) return pointer.grab(server, handlers) end
+
+    --- Take the keyboard (before shortcuts and clients): { key = fn(event),
+    --- finish = fn(cancelled) }, event = { sym, name ("Return", "a"), text
+    --- (what it types), mods = { shift, ctrl, alt, logo }, pressed, repeat }.
+    --- Returns a function that ends it.
+    function boring.grab_keyboard(handlers)
+        return require("compositor.keyboard").grab(server, handlers)
+    end
 
     --- The cursor name for resizing by `edges` ("se-resize", ...).
     boring.resize_cursor = pointer.resize_cursor

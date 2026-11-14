@@ -227,7 +227,7 @@ a smoke test in the VM display.
     - `idle`: lock and/or turn outputs off after a timeout, honouring idle
       inhibitors.
     - `layout-master`: master and stack.
-11. **`library/ui`.** Widgets drawn in the scene (box, text, image, list,
+11. ~~**`library/ui`.**~~ Done. Widgets drawn in the scene (box, text, image, list,
     input, button), row/column layout, themes as plain tables overridable from
     config. Core gets `boring.grab_keyboard(fn)` / `boring.grab_pointer(fn)`
     so compositor-drawn UI can take input.

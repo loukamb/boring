@@ -180,6 +180,7 @@ Plugins don't require each other. Code shared between plugins goes in a library,
 - [`fullscreen`](/plugins/library/fullscreen.lua): fill an output and put the window back afterwards
 - [`text`](/plugins/library/text.lua): text drawn into the scene, with ellipsis and wrapping
 - [`animate`](/plugins/library/animate.lua): animated values; borders, stacking and wallpaper colours take them anywhere they take a colour
+- [`ui`](/plugins/library/ui.lua): widgets the compositor draws itself (text, images, boxes with rounded corners, rows, columns, buttons, inputs, lists), themed with plain tables; `boring.grab_keyboard` and `boring.grab_pointer` give them input
 
 Events: `window:map`, `window:unmap`, `window:focus`, `window:blur`, `window:commit`, `window:title`, `window:fullscreen`, `window:maximize`, `window:urgent`, `output:add`, `output:change`, `output:usable`, `output:remove`, `ready`, `shutdown`. Windows have `position`, `set_position`, `geometry`, `bounds`, `size`, `set_size`, `raise`, `close`, `title`, `app_id`, `set_enabled`, `visible`, `set_fullscreen`, `set_maximized`, `set_urgent` and a `data` table for plugin state ([`compositor/window.lua`](/compositor/window.lua)).
 
