@@ -93,11 +93,11 @@ loads shared libraries.
 
 ### Listeners
 
-**Today:** every `wl_listener` gets its own `ffi.cast` callback. LuaJIT has a
-fixed number of callback slots, each C→Lua transition stops the JIT, and
-destroying a listener scans a global GC-pin array linearly.
+**Before:** every `wl_listener` got its own `ffi.cast` callback. LuaJIT has a
+fixed number of callback slots, and destroying a listener scanned a global
+GC-pin array linearly.
 
-**Target:** one C callback for all listeners. Each listener is a small cdata struct
+**Now:** one C callback for all listeners ([`shared/wl/listener.lua`](shared/wl/listener.lua)). Each listener is a small cdata struct
 `{ struct wl_listener l; uint32_t id; }`; the shared trampoline reads `id` with
 `container_of` and dispatches to a Lua function in an array. Creating or
 destroying a listener is O(1), and the number of listeners is unbounded.
@@ -110,8 +110,10 @@ a smoke test in the VM display.
 1. ~~**FFI generator + committed bindings.**~~ Done: `shared/clib.lua` is gone,
    the runtime no longer shells out to gcc, protocols come from XML, and libc
    declarations are generated.
-2. **`shared/wl`:** listener trampoline, `scope`, wl_list iteration, metatypes.
-   Delete `shared/emitter.lua`/`events.lua` duplication and generalize `hook`.
+2. ~~**`shared/wl`:**~~ Done: listener trampoline, `scope`, wl_list iteration,
+   metatypes, one emitter (`events.lua` alias and the unused `hook.lua` are
+   gone). `shared/wayland/server.lua` and `shared/scope.lua` remain as thin
+   compatibility layers until step 3 ports their callers.
 3. **Core services** (`compositor/`): split by protocol and responsibility, kill
    cross-service singletons, adopt metatypes. Big files (`input.lua`,
    `surface.lua`) get broken up here.

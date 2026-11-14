@@ -1,104 +1,89 @@
-local event_emitter = {}
+-- Named events for Lua code (plugins, services). Not for wl_signals; those
+-- go through shared.wl.listener.
+--
+--   local e = emitter.new()
+--   local handle = e:on("focus", function(surface) ... end)
+--   e:emit("focus", surface)
+--   handle:off()
+--
+-- An emitter is a plain table with shared functions; no metatable.
 
-local EventEmitter = {}
-EventEmitter.__index = EventEmitter
+local log = require("shared.log")
 
-local ListenerHandle = {}
-ListenerHandle.__index = ListenerHandle
+local emitter = {}
 
-function ListenerHandle:off()
-    if self._closed then
+local function off(e, event, fn)
+    local list = e._listeners[event]
+    if not list then
         return
     end
-    self._closed = true
-    self.emitter:off(self.event, self)
-end
-
-function event_emitter.new()
-    return setmetatable({ _listeners = {} }, EventEmitter)
-end
-
-function EventEmitter:on(event, callback)
-    assert(type(event) == "string", "event name must be a string")
-    assert(type(callback) == "function", "event callback must be a function")
-
-    local listeners = self._listeners[event]
-    if not listeners then
-        listeners = {}
-        self._listeners[event] = listeners
-    end
-
-    local listener = setmetatable({
-        event = event,
-        callback = callback,
-        emitter = self,
-        _closed = false,
-    }, ListenerHandle)
-
-    table.insert(listeners, listener)
-    return listener
-end
-
-function EventEmitter:off(event, callback)
-    local listeners = self._listeners[event]
-    if not listeners then
-        return
-    end
-
-    for i, listener in ipairs(listeners) do
-        if listener == callback or listener.callback == callback then
-            listener._closed = true
-            table.remove(listeners, i)
-            if #listeners == 0 then
-                self._listeners[event] = nil
+    for i = 1, #list do
+        local entry = list[i]
+        if entry == fn or entry.fn == fn then
+            entry.removed = true
+            table.remove(list, i)
+            if #list == 0 then
+                e._listeners[event] = nil
             end
             return
         end
     end
 end
 
-function EventEmitter:emit(event, ...)
-    local listeners = self._listeners[event]
-    if not listeners then
+local function on(e, event, fn)
+    assert(type(event) == "string", "event name must be a string")
+    assert(type(fn) == "function", "event callback must be a function")
+    local list = e._listeners[event]
+    if not list then
+        list = {}
+        e._listeners[event] = list
+    end
+    local entry = { fn = fn, removed = false }
+    entry.off = function() off(e, event, entry) end
+    list[#list + 1] = entry
+    return entry
+end
+
+local function emit(e, event, ...)
+    local list = e._listeners[event]
+    if not list then
         return
     end
-
-    local snapshot = {}
-    for i, listener in ipairs(listeners) do
-        snapshot[i] = listener
-    end
-
-    for _, listener in ipairs(snapshot) do
-        if not listener._closed then
-            local ok, err = xpcall(listener.callback, debug.traceback, ...)
+    -- Snapshot: callbacks may add or remove listeners.
+    local n = #list
+    local snapshot = { unpack(list, 1, n) }
+    for i = 1, n do
+        local entry = snapshot[i]
+        if not entry.removed then
+            local ok, err = xpcall(entry.fn, debug.traceback, ...)
             if not ok then
-                local log = require("shared.log")
-                log.error("Event '%s' listener error: %s", event, err)
+                log.error("event '%s' listener error: %s", event, tostring(err))
             end
         end
     end
 end
 
-function EventEmitter:clear(event)
+local function clear(e, event)
+    local function mark(list)
+        for _, entry in ipairs(list) do entry.removed = true end
+    end
     if event then
-        local listeners = self._listeners[event]
-        if listeners then
-            for _, listener in ipairs(listeners) do
-                listener._closed = true
-            end
-        end
-        self._listeners[event] = nil
+        if e._listeners[event] then mark(e._listeners[event]) end
+        e._listeners[event] = nil
         return
     end
-
-    for _, listeners in pairs(self._listeners) do
-        for _, listener in ipairs(listeners) do
-            listener._closed = true
-        end
-    end
-    self._listeners = {}
+    for _, list in pairs(e._listeners) do mark(list) end
+    e._listeners = {}
 end
 
-event_emitter.EventEmitter = EventEmitter
+function emitter.new()
+    return {
+        _listeners = {},
+        on = on,
+        off = off,
+        emit = emit,
+        clear = clear,
+    }
+end
 
-return event_emitter
+return emitter

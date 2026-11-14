@@ -2,7 +2,7 @@
 -- Responsibility: wl_display, event_loop, backend, allocator, renderer
 
 local wl = require("shared.wayland.server")
-local events_mod = require("shared.events")
+local events_mod = require("shared.emitter")
 local ffi = wl._ffi
 
 local core_service = {

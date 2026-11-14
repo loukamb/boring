@@ -4,8 +4,7 @@
 
 local wl = require("shared.wayland.server")
 local proto = require("shared.wayland.registry")
-local events_mod = require("shared.events")
-local hooks_mod = require("shared.hook")
+local events_mod = require("shared.emitter")
 local log = require("shared.log")
 local ffi = wl._ffi
 local bit = wl.bit
@@ -64,9 +63,6 @@ local surface_service = {
 
     -- Event emitter for plugin notifications
     events = events_mod.new(),
-
-    -- Hook system for plugin behavior overrides
-    hooks = hooks_mod.new(),
 }
 
 local surface_at_sx = ffi.new("double[1]")

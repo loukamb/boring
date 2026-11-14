@@ -1,17 +1,25 @@
 return function(t)
-    local Scope = require("shared.scope")
+    local ffi = require("ffi")
+    local wl = require("shared.wl")
+    local scope = wl.scope
+    local listener = wl.listener
     local emitter_module = require("shared.emitter")
-    local wl = require("shared.wayland.server")
+
+    local function new_signal()
+        local signal = ffi.new("struct wl_signal")
+        listener.signal_init(signal)
+        return signal
+    end
 
     t.test("scope close is idempotent and runs defers in LIFO order", function()
-        local scope = Scope.new("test")
+        local s = scope.new("test")
         local calls = {}
 
-        scope:defer(function() table.insert(calls, "first") end)
-        scope:defer(function() table.insert(calls, "second") end)
+        s:defer(function() table.insert(calls, "first") end)
+        s:defer(function() table.insert(calls, "second") end)
 
-        scope:close()
-        scope:close()
+        s:close()
+        s:close()
 
         t.eq(#calls, 2)
         t.eq(calls[1], "second")
@@ -20,30 +28,51 @@ return function(t)
 
     t.test("scope subscribes and releases emitter handles", function()
         local emitter = emitter_module.new()
-        local scope = Scope.new("test")
+        local s = scope.new("test")
         local calls = 0
 
-        scope:subscribe(emitter, "event", function()
+        s:subscribe(emitter, "event", function()
             calls = calls + 1
         end)
 
         emitter:emit("event")
-        scope:close()
+        s:close()
         emitter:emit("event")
 
         t.eq(calls, 1)
     end)
 
-    t.test("scope listen releases listener callback roots", function()
-        local signal = wl._ffi.new("struct wl_signal")
-        wl.list_init(signal.listener_list)
+    t.test("scope listen disconnects on close", function()
+        local signal = new_signal()
+        local before = listener.count()
+        local s = scope.new("test")
+        local calls = 0
+        s:listen(signal, function() calls = calls + 1 end)
+        t.eq(listener.count(), before + 1)
 
-        local before = #wl._prevent_gc
-        local scope = Scope.new("test")
-        scope:listen(signal, function() end)
-        t.ok(#wl._prevent_gc > before)
+        listener.emit(signal, nil)
+        s:close()
+        listener.emit(signal, nil)
 
-        scope:close()
-        t.eq(#wl._prevent_gc, before)
+        t.eq(calls, 1)
+        t.eq(listener.count(), before)
+    end)
+
+    t.test("child scopes close with their parent", function()
+        local parent = scope.new("parent")
+        local child = parent:child("child")
+        local closed = false
+        child:defer(function() closed = true end)
+        parent:close()
+        t.ok(closed)
+        t.ok(child.closed)
+    end)
+
+    t.test("defer on a closed scope runs immediately", function()
+        local s = scope.new("test")
+        s:close()
+        local ran = false
+        s:defer(function() ran = true end)
+        t.ok(ran)
     end)
 end

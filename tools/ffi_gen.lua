@@ -124,7 +124,7 @@ local bindings = {
         root_files = {},
         root_symbols = {
             -- processes and environment
-            "fork", "execl", "execvp", "kill", "waitpid", "getpid", "chdir", "getcwd",
+            "fork", "execl", "execvp", "_exit", "kill", "waitpid", "getpid", "chdir", "getcwd",
             "getenv", "setenv", "unsetenv",
             -- files
             "open", "read", "write", "close", "fcntl", "poll", "statx",

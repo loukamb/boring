@@ -18,6 +18,7 @@ extern int chdir(const char *__path);
 extern char *getcwd(char *__buf, size_t __size);
 extern int execl(const char *__path, const char *__arg, ...);
 extern int execvp(const char *__file, char *const __argv[]);
+extern void _exit(int __status);
 extern __pid_t getpid(void);
 extern __pid_t fork(void);
 extern int ftruncate(int __fd, __off_t __length);
