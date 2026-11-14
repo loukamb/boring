@@ -1,7 +1,7 @@
 -- Small filesystem helpers over libc (no lfs dependency).
 --
 --   for _, e in ipairs(fs.list(dir)) do print(e.name, e.dir) end
---   fs.is_dir(path), fs.is_file(path), fs.mtime(path)
+--   fs.is_dir(path), fs.is_file(path), fs.mtime(path), fs.mkdir_p(path)
 
 local bit = require("bit")
 local ffi = require("ffi")
@@ -55,6 +55,16 @@ function fs.list(dir)
     end
     C.closedir(d)
     return out
+end
+
+--- Create a directory and its parents (mode 0755 masked by umask).
+function fs.mkdir_p(path)
+    local so_far = path:sub(1, 1) == "/" and "" or "."
+    for part in path:gmatch("[^/]+") do
+        so_far = so_far .. "/" .. part
+        if not fs.is_dir(so_far) then C.mkdir(so_far, tonumber("755", 8)) end
+    end
+    return fs.is_dir(path)
 end
 
 --- Is `name` an executable in $PATH (or an existing path)?

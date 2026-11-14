@@ -25,7 +25,7 @@ A set of default plugins are included that provides basic window management and 
 - [`layout-kiosk`](/plugins/layout-kiosk.lua): Runs a single, maximized window
 - [`rules`](/plugins/rules.lua): Window rules as Lua functions returning properties (floating, size, workspace, …)
 - [`workspaces`](/plugins/workspaces.lua): Several workspaces per output, shown to panels over `ext-workspace`
-- [`screenshot`](/plugins/screenshot.lua): Screenshot plugin
+- [`screenshot`](/plugins/screenshot.lua): Screenshots of an area, a window or an output, with blur, pen, box and arrow tools; saved as PNG and copied, with no external tools
 - [`wallpaper`](/plugins/wallpaper.lua): Wallpaper plugin
 - [`xwayland`](/plugins/xwayland.lua): XWayland integration
 
@@ -182,6 +182,7 @@ Plugins don't require each other. Code shared between plugins goes in a library,
 - [`text`](/plugins/library/text.lua): text drawn into the scene, with ellipsis and wrapping
 - [`animate`](/plugins/library/animate.lua): animated values; borders, stacking and wallpaper colours take them anywhere they take a colour
 - [`desktop`](/plugins/library/desktop.lua): desktop entries (localised, filtered, field codes) and icon theme lookup
+- [`capture`](/plugins/library/capture.lua) and [`pixels`](/plugins/library/pixels.lua): the screen read back as pixels, and drawing on them (blur, lines, boxes, arrows)
 - [`ui`](/plugins/library/ui.lua): widgets the compositor draws itself (text, images, boxes with rounded corners, rows, columns, buttons, inputs, lists), themed with plain tables; `boring.grab_keyboard` and `boring.grab_pointer` give them input
 
 Events: `window:map`, `window:unmap`, `window:focus`, `window:blur`, `window:commit`, `window:title`, `window:fullscreen`, `window:maximize`, `window:urgent`, `output:add`, `output:change`, `output:usable`, `output:remove`, `ready`, `shutdown`. Windows have `position`, `set_position`, `geometry`, `bounds`, `size`, `set_size`, `raise`, `close`, `title`, `app_id`, `set_enabled`, `visible`, `set_fullscreen`, `set_maximized`, `set_urgent` and a `data` table for plugin state ([`compositor/window.lua`](/compositor/window.lua)).

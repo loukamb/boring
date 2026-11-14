@@ -149,7 +149,7 @@ local bindings = {
         headers = {
             "<unistd.h>", "<stdlib.h>", "<fcntl.h>", "<poll.h>", "<dirent.h>",
             "<signal.h>", "<time.h>", "<sys/inotify.h>", "<sys/stat.h>",
-            "<sys/wait.h>", "<sys/mman.h>", "<sys/socket.h>", "<sys/un.h>", "<errno.h>",
+            "<sys/wait.h>", "<sys/mman.h>", "<sys/socket.h>", "<sys/un.h>", "<errno.h>", "<string.h>",
         },
         root_files = {},
         root_symbols = {
@@ -167,6 +167,8 @@ local bindings = {
             -- Unix sockets (ipc)
             "socket", "bind", "listen", "accept4", "connect", "shutdown", "unlink", "chmod",
             "getuid", "struct sockaddr_un",
+            -- memory wlroots frees (clipboard mime types), directories
+            "strdup", "free", "mkdir",
         },
         -- Integer macros, evaluated by the C compiler and emitted as enum constants.
         constants = {

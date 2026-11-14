@@ -100,6 +100,8 @@ no module-level singletons to reach into.
 | `api.lua` | The `boring` API for config and plugins |
 | `process.lua` | Child processes, reaped via SIGCHLD on the event loop |
 | `watch.lua` | inotify on the event loop (config reload on save) |
+| `idle.lua` | Idle timers over input activity, honouring idle inhibitors |
+| `clipboard.lua` | A clipboard data source in Lua (`boring.set_clipboard`) |
 | `loop.lua` | Timers and fd watches on the event loop, one C callback each |
 | `plugin.lua` | Loading and mounting plugins |
 | `state.lua` | Loading and reloading the config file |
@@ -237,7 +239,7 @@ a smoke test in the VM display.
     the icon theme, fuzzy matching ranked by use (`ctx.state`, saved to
     disk). Sources are functions, so windows, a calculator or commands are a
     few lines each.
-13. **Screenshots without external tools.** The compositor renders the
+13. ~~**Screenshots without external tools.**~~ Done. The compositor renders the
     output's scene into a buffer itself; select a region or click a window;
     an editor built on `library/ui` to blur regions (box blur on the pixels)
     and draw (pen, rectangle, arrow); save as PNG through libvips; copy

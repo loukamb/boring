@@ -172,7 +172,7 @@ end
 
 local function save_usage(usage)
     local dir, path = usage_path()
-    if not require("shared.fs").is_dir(dir) then os.execute("mkdir -p '" .. dir:gsub("'", "'\\''") .. "'") end
+    if not require("shared.fs").mkdir_p(dir) then return end
     local f = io.open(path .. ".tmp", "w")
     if not f then return end
     f:write("return {\n")

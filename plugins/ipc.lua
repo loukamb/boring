@@ -8,8 +8,9 @@
 --   echo 'return boring.outputs()[1].name' | ./boring.lua -e -
 --   ./boring.lua -i                                -- a REPL
 --
--- Code runs in the config environment (boring, require, actions, color,
--- ...); globals it sets persist between calls. Expressions don't need a
+-- Code runs in the config environment: what the config defined (locals
+-- excepted), then boring, require, actions, color, ...; globals it sets
+-- persist between calls. Expressions don't need a
 -- `return`. What it returns and prints is sent back.
 --
 -- The socket is $XDG_RUNTIME_DIR/boring-$WAYLAND_DISPLAY, mode 0600: only
@@ -45,8 +46,15 @@ local function evaluate(env, code)
 end
 
 function plugin:mount(config, ctx)
-    -- Calls share globals: a table over the plugin's own environment.
-    local env = setmetatable({}, { __index = getfenv(1) })
+    -- Calls share globals: a table over the config's globals, then the
+    -- plugin environment.
+    local plugin_env = getfenv(1)
+    local env = setmetatable({}, { __index = function(_, k)
+        local config_env = boring.config_env()
+        local v = config_env and rawget(config_env, k)
+        if v ~= nil then return v end
+        return plugin_env[k]
+    end })
     local clients = {}
     local result = {}
 

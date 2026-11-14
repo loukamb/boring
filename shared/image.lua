@@ -56,6 +56,8 @@ void vips_error_clear(void);
 
 VipsImage *vips_image_new_from_file(const char *name, ...);
 VipsImage *vips_image_new_from_buffer(const void *buf, size_t len, const char *option_string, ...);
+VipsImage *vips_image_new_from_memory(const void *data, size_t size, int width, int height, int bands, int format);
+int vips_image_write_to_buffer(VipsImage *in, const char *suffix, void **buf, size_t *size, ...);
 
 int vips_image_get_width(const VipsImage *image);
 int vips_image_get_height(const VipsImage *image);
@@ -377,6 +379,39 @@ function image.icon(path, size)
     image.free_buffer(ptr)
     img:free()
     return width, height, ffi.string(pixels, width * height * 4)
+end
+
+--- Encode premultiplied ARGB pixels (uint32_t[width * height]) as PNG
+--- bytes (opaque: alpha is dropped). Nil, err on failure.
+function image.png(pixels, width, height)
+    ensure_init()
+    local n = width * height
+    local rgb = ffi.new("uint8_t[?]", n * 3)
+    for i = 0, n - 1 do
+        local p = pixels[i]
+        rgb[i * 3] = bit.band(bit.rshift(p, 16), 0xff)
+        rgb[i * 3 + 1] = bit.band(bit.rshift(p, 8), 0xff)
+        rgb[i * 3 + 2] = bit.band(p, 0xff)
+    end
+    local img = vips.vips_image_new_from_memory(rgb, n * 3, width, height, 3, 0 --[[ VIPS_FORMAT_UCHAR ]])
+    if img == nil then
+        local err = ffi.string(vips.vips_error_buffer())
+        vips.vips_error_clear()
+        return nil, err
+    end
+    local out, size = ffi.new("void *[1]"), ffi.new("size_t[1]")
+    local result = vips.vips_image_write_to_buffer(img, ".png", out, size, nil)
+    gobject.g_object_unref(img)
+    if result ~= 0 then
+        local err = ffi.string(vips.vips_error_buffer())
+        vips.vips_error_clear()
+        return nil, err
+    end
+    local bytes = ffi.string(out[0], size[0])
+    glib.g_free(out[0])
+    -- `rgb` must live until here: libvips reads it lazily.
+    rgb = nil
+    return bytes
 end
 
 function image.free_buffer(ptr)

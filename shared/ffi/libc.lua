@@ -33,6 +33,7 @@ typedef struct {
     unsigned long int __val[(1024 / (8 *sizeof (unsigned long int)))];
 } __sigset_t;
 typedef __sigset_t sigset_t;
+extern void free(void *__ptr);
 extern char *getenv(const char *__name);
 extern int setenv(const char *__name, const char *__value, int __replace);
 extern int unsetenv(const char *__name);
@@ -76,6 +77,7 @@ extern int inotify_init1(int __flags);
 extern int inotify_add_watch(int __fd, const char *__name, uint32_t __mask);
 extern int inotify_rm_watch(int __fd, int __wd);
 extern int chmod(const char *__file, __mode_t __mode);
+extern int mkdir(const char *__path, __mode_t __mode);
 struct statx_timestamp {
     __s64 tv_sec;
     __u32 tv_nsec;
@@ -165,6 +167,7 @@ struct sockaddr_un {
     sa_family_t sun_family;
     char sun_path[108];
 };
+extern char *strdup(const char *__s);
 enum {
     IN_ACCESS = 1,
     IN_MODIFY = 2,

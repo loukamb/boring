@@ -81,16 +81,13 @@ local function fd_dispatch(_, _, data)
     return 0
 end
 
---- Call fn() whenever `fd` is readable (or hung up). Returns a function
---- that stops watching (it doesn't close the fd).
-function loop.readable(server, fd, fn)
+local function watch(server, fd, mask, fn)
     if not fd_trampoline then
         fd_trampoline = ffi.cast("wl_event_loop_fd_func_t", fd_dispatch)
     end
     next_id = next_id + 1
     local id = next_id
-    local source = lib.wl_event_loop_add_fd(server.event_loop, fd, C.WL_EVENT_READABLE, fd_trampoline,
-        ffi.cast("void *", id))
+    local source = lib.wl_event_loop_add_fd(server.event_loop, fd, mask, fd_trampoline, ffi.cast("void *", id))
     watches[id] = { source = source, fn = fn }
     return function()
         local w = watches[id]
@@ -99,6 +96,13 @@ function loop.readable(server, fd, fn)
         lib.wl_event_source_remove(w.source)
     end
 end
+
+--- Call fn() whenever `fd` is readable (or hung up). Returns a function
+--- that stops watching (it doesn't close the fd).
+function loop.readable(server, fd, fn) return watch(server, fd, C.WL_EVENT_READABLE, fn) end
+
+--- Call fn() whenever `fd` can be written to.
+function loop.writable(server, fd, fn) return watch(server, fd, C.WL_EVENT_WRITABLE, fn) end
 
 --- Remove every timer and fd watch (the server is going away).
 function loop.cancel_all()

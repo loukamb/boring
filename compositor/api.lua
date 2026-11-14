@@ -132,6 +132,9 @@ function api.create(server)
 
     function boring.spawn(cmd) return process.spawn(cmd) end
 
+    --- Put text (a string) or { [mime type] = bytes } on the clipboard.
+    function boring.set_clipboard(data) require("compositor.clipboard").set(server, data) end
+
     --- Run fn after `ms` milliseconds; if it returns a number, again after
     --- that many. Returns a function that cancels it.
     function boring.after(ms, fn) return loop.after(server, ms, fn) end
@@ -151,6 +154,12 @@ function api.create(server)
     function boring.exit()
         process.stop_all()
         require("compositor.server").terminate(server)
+    end
+
+    --- The globals of the loaded config (what it defined), or nil.
+    function boring.config_env()
+        local current = require("compositor.config")._current
+        return current and current.env
     end
 
     function boring.reload()
