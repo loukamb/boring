@@ -35,7 +35,7 @@ jobs:
 
       - name: Load committed FFI bindings
         run: |
-          luajit -e 'package.path="./?/init.lua;./?.lua;"..package.path; require("shared.wayland.server"); require("shared.wayland.client")'
+          luajit -e 'package.path="./?/init.lua;./?.lua;"..package.path; require("shared.wl"); require("shared.ffi.client"); require("shared.wayland.client")'
 
       - name: Check FFI struct layouts against the C compiler
         run: luajit tools/ffi_check.lua

@@ -1,9 +1,5 @@
 # Architecture and principles
 
-> **Status: draft for discussion.** This describes where the code is going, not
-> where it is. Refactors land layer by layer (see [Roadmap](#roadmap)); until a
-> layer is done, its old code doesn't follow these rules yet.
-
 boring is a Wayland compositor written in LuaJIT on top of wlroots. The goal is
 that as much as possible is plain Lua that the JIT can optimize, and that C is
 only ever *called*, never generated or patched at runtime.
@@ -149,8 +145,7 @@ a smoke test in the VM display.
    declarations are generated.
 2. ~~**`shared/wl`:**~~ Done: listener trampoline, `scope`, wl_list iteration,
    metatypes, one emitter (`events.lua` alias and the unused `hook.lua` are
-   gone). `shared/wayland/server.lua` and `shared/scope.lua` remain as thin
-   compatibility layers until step 3 ports their callers.
+   gone).
 3. ~~**Core services**~~ Done: the six singleton services became modules over
    one `server` record (table above); windows are one object type with role
    implementations; config rules are plain tables.
