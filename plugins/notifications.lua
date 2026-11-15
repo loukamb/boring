@@ -28,6 +28,7 @@
 local ui = require("@boring/library/ui")
 local animate = require("@boring/library/animate")
 local desktop = require("@boring/library/desktop")
+local scene = require("@boring/library/scene")
 local dbus = require("shared.dbus")
 
 local plugin = { name = "notifications" }
@@ -97,7 +98,7 @@ function plugin:mount(config, ctx)
             else
                 card.position = animate.bind(nil, animate.ease({ from = card.offscreen, to = card.target,
                     duration = 260, easing = "out-back" }), function(p)
-                    if card.view.tree then card.view.tree.node:set_position(math.floor(p[1]), math.floor(p[2])) end
+                    if card.view.tree then card.view.tree:set_position(p[1], p[2]) end
                 end)
             end
         end
@@ -149,7 +150,7 @@ function plugin:mount(config, ctx)
     local function listen(card)
         local n = card.n
         if card.off_click then card.off_click() end
-        card.off_click = boring.on_click(card.view.tree.node, function(_, button)
+        card.off_click = scene.on_click(card.view.tree, function(_, button)
             local x, y = boring.cursor()
             if button == 0x111 then return close(n.id, DISMISSED) end -- right click
             if not card.view:click(x, y, button) then
@@ -164,7 +165,7 @@ function plugin:mount(config, ctx)
         card.view:update()
         listen(card)
         local p = card.position and card.position.current
-        if p then card.view.tree.node:set_position(math.floor(p[1]), math.floor(p[2])) end
+        if p then card.view.tree:set_position(p[1], p[2]) end
     end
 
     local function show(n)
@@ -195,7 +196,7 @@ function plugin:mount(config, ctx)
         local from = card.target or { -10000, -10000 }
         animate.run(nil, animate.ease({ from = 0, to = 1, duration = 180 }), function(p)
             if view.tree then
-                view.tree.node:set_position(math.floor(from[1] + (card.offscreen[1] - from[1]) * p), math.floor(from[2]))
+                view.tree:set_position(from[1] + (card.offscreen[1] - from[1]) * p, from[2])
                 view:set_opacity(1 - p)
             end
         end, function() view:close() end)

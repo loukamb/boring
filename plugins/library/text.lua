@@ -2,7 +2,7 @@
 -- Text drawn into the scene graph.
 --
 --   local text = require("@boring/library/text")
---   local node, width, height = text.draw(tree, "Hello", {
+--   local node, width, height = text.draw(parent, "Hello", {   -- a library/scene tree
 --       font = "Sans Bold 10",   -- Pango font description
 --       color = "#ffffff",       -- hex string or { r, g, b, a }
 --       max_width = 200,         -- longer text ends in "…"
@@ -15,6 +15,7 @@
 local ffi = require("ffi")
 local image = require("shared.image")
 local buffer = require("shared.wl.buffer")
+local scene = require("@boring/library/scene")
 local color = require("shared.color")
 
 local text = {}
@@ -85,9 +86,9 @@ local function lut_for(c)
     return lut
 end
 
---- Draw text under a scene tree. Returns the wlr_scene_buffer, its width and
---- height; nil if there's nothing to draw or no text renderer.
-function text.draw(tree, str, opts)
+--- Draw text under a scene tree. Returns the image (library/scene), its
+--- width and height; nil if there's nothing to draw or no text renderer.
+function text.draw(parent, str, opts)
     if not text.available or not str or str == "" then return nil end
     opts = opts or {}
     local font = opts.font or DEFAULT_FONT
@@ -99,7 +100,7 @@ function text.draw(tree, str, opts)
     local buf = buffer.new(width, height)
     local px, src = buf.pixels, ffi.cast("const uint8_t *", bytes)
     for i = 0, width * height - 1 do px[i] = lut[src[i]] end
-    return buffer.attach(tree, buf), width, height
+    return scene.wrap(buffer.attach(scene.raw(parent), buf)), width, height
 end
 
 return text

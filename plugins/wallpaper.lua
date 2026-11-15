@@ -13,6 +13,7 @@
 
 local color = require("shared.color")
 local animate = require("@boring/library/animate")
+local scene = require("@boring/library/scene")
 
 local plugin = { name = "wallpaper" }
 
@@ -37,15 +38,14 @@ local function value_for(config, output_name)
 end
 
 function plugin:mount(config, ctx)
-    local lib = boring.wl.lib
     local scope = ctx.scope
-    local per_output = {} -- output -> { rect = scene_rect } or { process = p }
+    local per_output = {} -- output -> { rect = scene rect } or { process = p }
 
     local function remove(o)
         local entry = per_output[o]
         if not entry then return end
         if entry.binding then animate.stop(entry.binding) end
-        if entry.rect then entry.rect.node:destroy() end
+        if entry.rect then entry.rect:destroy() end
         if entry.process then entry.process:stop() end
         per_output[o] = nil
     end
@@ -55,7 +55,7 @@ function plugin:mount(config, ctx)
         if entry and entry.rect then
             local b = o:box()
             entry.rect:set_size(b.width, b.height)
-            entry.rect.node:set_position(b.x, b.y)
+            entry.rect:set_position(b.x, b.y)
         end
     end
 
@@ -72,12 +72,11 @@ function plugin:mount(config, ctx)
             return
         end
         if type(value) ~= "string" and not animate.is(value) and type(value) ~= "table" then value = DEFAULT end
-        local rect = lib.wlr_scene_rect_create(boring.layers.background, 1, 1, color.float4(color.hex(DEFAULT)))
+        local rect = scene.rect(scene.layer("background"), 1, 1, DEFAULT)
         local entry = { rect = rect }
         per_output[o] = entry
-        local scratch = color.float4(color.hex(DEFAULT))
         entry.binding = animate.bind(nil, value, function(c)
-            rect:set_color(color.float4_into(color.parse(c, color.hex(DEFAULT)), scratch))
+            rect:set_color(color.parse(c) and c or DEFAULT)
         end)
         place(o)
     end

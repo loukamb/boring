@@ -79,7 +79,7 @@ function plugin:mount(config, ctx)
 
     -- Listen once the Wayland socket exists (the config runs before it does).
     local function start()
-        local path = config.path or socket.path(boring.server.socket)
+        local path = config.path or socket.path(boring.socket())
         if not path then
             boring.log.warn("ipc: no XDG_RUNTIME_DIR; not listening")
             return
@@ -106,7 +106,7 @@ function plugin:mount(config, ctx)
         end)
     end
 
-    if boring.server.socket then
+    if boring.socket() then
         start()
     else
         local handle

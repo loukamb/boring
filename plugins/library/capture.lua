@@ -15,6 +15,7 @@
 local bit = require("bit")
 local ffi = require("ffi")
 local pixels = require("@boring/library/pixels")
+local scene = require("@boring/library/scene")
 
 local capture = {}
 
@@ -118,7 +119,8 @@ local function walk(canvas, box, scale, tree, ox, oy, excluded)
 end
 
 --- A region of the layout (layout coordinates) as a canvas.
---- opts: scale (pixels per layout pixel, default 1), exclude (scene trees).
+--- opts: scale (pixels per layout pixel, default 1), exclude (library/scene
+--- trees, or raw ones).
 function capture.region(box, opts)
     opts = opts or {}
     local scale = opts.scale or 1
@@ -126,7 +128,7 @@ function capture.region(box, opts)
     -- Opaque black underneath, like an output.
     for i = 0, canvas.width * canvas.height - 1 do canvas.data[i] = 0xff000000 end
     local excluded = {}
-    for _, tree in ipairs(opts.exclude or {}) do excluded[wl.addr(tree.node)] = true end
+    for _, tree in ipairs(opts.exclude or {}) do excluded[wl.addr(scene.raw(tree).node)] = true end
     walk(canvas, box, scale, boring.server.scene.tree, 0, 0, excluded)
     return canvas
 end
@@ -134,7 +136,7 @@ end
 --- A whole output, at its scale.
 function capture.output(o, opts)
     opts = opts or {}
-    return capture.region(o:box(), { scale = opts.scale or o.wlr.scale, exclude = opts.exclude })
+    return capture.region(o:box(), { scale = opts.scale or o:scale(), exclude = opts.exclude })
 end
 
 return capture

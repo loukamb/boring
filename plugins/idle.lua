@@ -16,7 +16,7 @@ function plugin:mount(config, ctx)
     if lock and lock.command then
         scope:defer(boring.idle((lock.timeout or 300) * 1000, {
             idle = function()
-                if boring.server.locked == nil then boring.spawn(lock.command) end
+                if not boring.locked() then boring.spawn(lock.command) end
             end,
         }))
     end

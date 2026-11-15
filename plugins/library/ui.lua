@@ -7,7 +7,8 @@
 --
 --   local view = ui.view({
 --       theme = theme,
---       layer = "overlay",                           -- a boring.layers name
+--       layer = "overlay",                           -- a library/scene layer name
+--       parent = nil,                                -- or a library/scene tree
 --       render = function(view)                      -- returns the widget tree
 --           return ui.box(ui.column({
 --               ui.text("Hello", { style = "title" }),
@@ -20,7 +21,8 @@
 --       end,
 --   })
 --   view:update()   -- render again after state changed
---   view:click(x, y) / view:contains(x, y) / view:close()
+--   view:click(x, y) / view:contains(x, y) / view:close() / view:set_opacity(a)
+--   view.tree   -- its library/scene tree (new after every update)
 --
 -- Widgets are plain tables made by the functions below. Sizes are in
 -- layout pixels; colours are hex strings or { r, g, b, a }.
@@ -186,16 +188,13 @@ end
 --------------------------------------------------------------------------------
 
 local lib = boring.wl.lib
-
--- Rects drawn by the view being rendered, with their colours (for fading).
-local drawing_rects = nil
+local scene = require("@boring/library/scene")
 
 local function rect(tree, x, y, width, height, c)
     if width <= 0 or height <= 0 then return end
     local parsed = color.parse(c, { 0, 0, 0, 0 })
     local r = lib.wlr_scene_rect_create(tree, width, height, color.float4(parsed))
     r.node:set_position(x, y)
-    if drawing_rects then drawing_rects[#drawing_rects + 1] = { r, parsed } end
     return r
 end
 
@@ -329,7 +328,7 @@ draw = function(w, ctx, x, y, width, height)
     if kind == "text" then
         local node = text.draw(tree, w.text, { font = text_font(w, theme), color = text_color(w, theme),
             max_width = w.max_width or width, wrap = w._wrap or (w.wrap and math.min(w.wrap, width)) or nil })
-        if node then node.node:set_position(math.floor(x), math.floor(y)) end
+        if node then node:set_position(math.floor(x), math.floor(y)) end
     elseif kind == "image" then
         local size = w.size or theme.icon_size
         local px = w.path and icon_pixels(w.path, size)
@@ -384,7 +383,7 @@ draw = function(w, ctx, x, y, width, height)
         local tw, th = text.measure(w.label, { font = theme.font })
         local node = text.draw(tree, w.label, { font = theme.font,
             color = w.selected and theme.selection_foreground or theme.foreground })
-        if node then node.node:set_position(math.floor(x + (width - (tw or 0)) / 2), math.floor(y + (height - (th or 0)) / 2)) end
+        if node then node:set_position(math.floor(x + (width - (tw or 0)) / 2), math.floor(y + (height - (th or 0)) / 2)) end
         ctx.targets[#ctx.targets + 1] = { x = x, y = y, width = width, height = height, fn = w.on_click }
     elseif kind == "input" then
         local font = theme.input_font
@@ -395,7 +394,7 @@ draw = function(w, ctx, x, y, width, height)
         local ty = math.floor(y + (height - th) / 2)
         local node = text.draw(tree, shown, { font = font, color = value ~= "" and theme.foreground or theme.muted,
             max_width = width })
-        if node then node.node:set_position(math.floor(x), ty) end
+        if node then node:set_position(math.floor(x), ty) end
         -- The caret.
         local cursor = w.cursor or #value
         local before = value:sub(1, cursor)
@@ -428,21 +427,17 @@ end
 
 local function view_update(view)
     if view.closed then return end
-    if view.tree then view.tree.node:destroy() end
-    local parent = view.parent or boring.layers[view.layer or "overlay"]
-    view.tree = lib.wlr_scene_tree_create(parent)
+    if view.tree then view.tree:destroy() end
+    view.tree = scene.tree(view.parent or scene.layer(view.layer or "overlay"))
     local widget = view.render(view)
     local width, height = measure(widget, view.theme, view.max_width or 10000)
     view.width, view.height = width, height
     local x, y = 0, 0
     if view.place then x, y = view.place(width, height) end
     view.x, view.y = math.floor(x), math.floor(y)
-    view.tree.node:set_position(view.x, view.y)
-    local ctx = { theme = view.theme, tree = view.tree, targets = {} }
-    view.rects = {}
-    drawing_rects = view.rects
+    view.tree:set_position(view.x, view.y)
+    local ctx = { theme = view.theme, tree = view.tree.raw, targets = {} }
     local ok, err = pcall(draw, widget, ctx, 0, 0, width, height)
-    drawing_rects = nil
     if not ok then error(err, 0) end
     view.targets = ctx.targets
     if view.opacity then view:set_opacity(view.opacity) end
@@ -469,28 +464,13 @@ end
 -- Opacity of everything in the view.
 local function set_opacity(view, alpha)
     view.opacity = alpha
-    if not view.tree then return end
-    for _, entry in ipairs(view.rects) do
-        local c = entry[2]
-        entry[1]:set_color(color.float4({ c[1], c[2], c[3], (c[4] or 1) * alpha }))
-    end
-    local wl = boring.wl
-    local function walk(tree)
-        for node in wl.list.each(tree.children, "struct wlr_scene_node", "link") do
-            if node.type == wl.C.WLR_SCENE_NODE_TREE then
-                walk(lib.wlr_scene_tree_from_node(node))
-            elseif node.type == wl.C.WLR_SCENE_NODE_BUFFER then
-                lib.wlr_scene_buffer_set_opacity(lib.wlr_scene_buffer_from_node(node), alpha)
-            end
-        end
-    end
-    walk(view.tree)
+    if view.tree then view.tree:set_opacity(alpha) end
 end
 
 local function view_close(view)
     if view.closed then return end
     view.closed = true
-    if view.tree then view.tree.node:destroy() end
+    if view.tree then view.tree:destroy() end
     view.tree = nil
     if view.on_close then view.on_close(view) end
 end

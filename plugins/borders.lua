@@ -16,8 +16,8 @@
 -- Colours can be animations (library/animate), e.g. an urgent border that
 -- pulses: urgent = animate.pulse({ from = "#ef4444", to = "#7f1d1d", period = 800 }).
 
-local color = require("shared.color")
 local animate = require("@boring/library/animate")
+local scene = require("@boring/library/scene")
 
 local plugin = { name = "borders" }
 
@@ -30,8 +30,6 @@ function plugin:mount(config, ctx)
     local focused = colors.focused or "#ffffff"
     local urgent = colors.urgent or focused
     local transition = { duration = config.transition or 150 }
-    local lib = boring.wl.lib
-    local initial = color.float4({ 0.5, 0.5, 0.5, 1 })
     local scope = ctx.scope
 
     local function update(w)
@@ -43,13 +41,13 @@ function plugin:mount(config, ctx)
         b.x, b.y, b.width, b.height = g.x, g.y, g.width, g.height
         local x0, y0 = g.x - width, g.y - width
         b.top:set_size(g.width + width * 2, width)
-        b.top.node:set_position(x0, y0)
+        b.top:set_position(x0, y0)
         b.bottom:set_size(g.width + width * 2, width)
-        b.bottom.node:set_position(x0, g.y + g.height)
+        b.bottom:set_position(x0, g.y + g.height)
         b.left:set_size(width, g.height)
-        b.left.node:set_position(x0, g.y)
+        b.left:set_position(x0, g.y)
         b.right:set_size(width, g.height)
-        b.right.node:set_position(g.x + g.width, g.y)
+        b.right:set_position(g.x + g.width, g.y)
     end
 
     local function wanted(w)
@@ -65,19 +63,18 @@ function plugin:mount(config, ctx)
             animate.to(b.color, want, transition)
         end
         -- No borders around fullscreen windows.
-        for _, side in ipairs(SIDES) do b[side].node:set_enabled(not w.fullscreen) end
+        for _, side in ipairs(SIDES) do b[side]:set_enabled(not w.fullscreen) end
     end
 
     local function attach(w)
         if w.data.borders or w.props.border == false then return end
-        local function rect() return lib.wlr_scene_rect_create(w.tree, 0, 0, initial) end
+        local tree = scene.window(w)
+        local function rect() return scene.rect(tree, 0, 0, "#808080") end
         local b = { top = rect(), bottom = rect(), left = rect(), right = rect() }
         w.data.borders = b
-        local scratch = color.float4({ 0, 0, 0, 0 })
         b.want = wanted(w)
         b.color = animate.bind(nil, b.want, function(c)
-            color.float4_into(c, scratch)
-            for _, side in ipairs(SIDES) do b[side]:set_color(scratch) end
+            for _, side in ipairs(SIDES) do b[side]:set_color(c) end
         end)
         update(w)
         paint(w)
@@ -87,7 +84,7 @@ function plugin:mount(config, ctx)
         local b = w.data.borders
         if not b then return end
         animate.stop(b.color)
-        for _, side in ipairs(SIDES) do b[side].node:destroy() end
+        for _, side in ipairs(SIDES) do b[side]:destroy() end
         w.data.borders = nil
     end
 

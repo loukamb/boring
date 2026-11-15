@@ -177,6 +177,7 @@ When the config is saved, plugins it mounts with the same config (and an unchang
 
 Plugins don't require each other. Code shared between plugins goes in a library, `require("@boring/library/<name>")`, which is loaded once per compositor and kept across reloads. The included ones:
 
+- [`scene`](/plugins/library/scene.lua): the scene graph as Lua objects: trees, solid rects and images, with position, size, colour, opacity, snapshots and clicks
 - [`spaces`](/plugins/library/spaces.lua): windows grouped into spaces per output and arranged by layout plugins
 - [`workspaces`](/plugins/library/workspaces.lua): several spaces per output, published over `ext-workspace`
 - [`fullscreen`](/plugins/library/fullscreen.lua): fill an output and put the window back afterwards
@@ -188,7 +189,7 @@ Plugins don't require each other. Code shared between plugins goes in a library,
 
 Events: `window:map`, `window:unmap`, `window:focus`, `window:blur`, `window:commit`, `window:title`, `window:fullscreen`, `window:maximize`, `window:urgent`, `output:add`, `output:change`, `output:usable`, `output:remove`, `ready`, `shutdown`. Windows have `position`, `set_position`, `geometry`, `bounds`, `size`, `set_size`, `raise`, `close`, `title`, `app_id`, `set_enabled`, `visible`, `set_fullscreen`, `set_maximized`, `set_urgent` and a `data` table for plugin state ([`compositor/window.lua`](/compositor/window.lua)).
 
-Core doesn't manage windows: a new window opens at the origin of the output under the cursor, and what clients ask for arrives as events (`window:request_move`, `window:request_resize`, `window:request_fullscreen`, `window:request_maximize`, `window:request_minimize`) for plugins to answer. `boring.begin_move`, `boring.begin_resize` and `boring.grab_pointer` are the tools for it. The layout plugins share [`library/spaces`](/plugins/library/spaces.lua), which documents how to write one. For anything else, `boring.wl` gives direct access to wlroots and `boring.server` to the compositor's objects.
+Core doesn't manage windows: a new window opens at the origin of the output under the cursor, and what clients ask for arrives as events (`window:request_move`, `window:request_resize`, `window:request_fullscreen`, `window:request_maximize`, `window:request_minimize`) for plugins to answer. `boring.begin_move`, `boring.begin_resize` and `boring.grab_pointer` are the tools for it. The layout plugins share [`library/spaces`](/plugins/library/spaces.lua), which documents how to write one. Plugins draw through [`library/scene`](/plugins/library/scene.lua). Libraries that need more have `boring.wl` (wlroots itself) and `boring.server` (the compositor's objects); plugins stay off them.
 
 For examples on how to write plugins, see the [default plugins](/plugins/).
 

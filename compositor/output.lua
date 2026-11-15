@@ -3,7 +3,7 @@
 --
 -- An output record is a plain table:
 --   { name, wlr, scene_output, layout_output, scope, usable = {x,y,width,height},
---     box(o), size(o), set_power(o, on) }
+--     box(o), size(o), scale(o), set_power(o, on) }
 -- `usable` is the area left after layer-shell exclusive zones (panels), in
 -- layout coordinates; plugins placing windows keep them inside it.
 --
@@ -51,6 +51,9 @@ local function size(o)
     local b = box(o)
     return b.width, b.height
 end
+
+--- Pixels per layout pixel.
+local function scale(o) return o.wlr.scale end
 
 --- Turn the screen on or off (DPMS). The output stays in the layout.
 local function set_power(o, on)
@@ -115,6 +118,7 @@ local function new_output(server, wlr_output)
         scope = server.scope:child("output " .. name),
         box = box,
         size = size,
+        scale = scale,
         set_power = set_power,
     }
 

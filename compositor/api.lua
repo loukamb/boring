@@ -130,6 +130,13 @@ function api.create(server)
 
     -- Compositor ------------------------------------------------------------
 
+    --- Whether the session is locked (a lock client is up, or the screen
+    --- is blanked waiting for one).
+    function boring.locked() return server.locked ~= nil end
+
+    --- The Wayland display name clients connect to (WAYLAND_DISPLAY).
+    function boring.socket() return server.socket end
+
     function boring.spawn(cmd) return process.spawn(cmd) end
 
     --- Put text (a string) or { [mime type] = bytes } on the clipboard.

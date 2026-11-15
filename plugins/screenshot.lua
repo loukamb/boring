@@ -22,12 +22,11 @@
 --   c  next colour   Ctrl+z undo   Enter  done   Ctrl+c copy   Ctrl+s save   Escape cancel
 -- or click the toolbar. Emits screenshot:taken(path or nil, png bytes).
 
-local ffi = require("ffi")
 local ui = require("@boring/library/ui")
 local capture = require("@boring/library/capture")
 local pixels = require("@boring/library/pixels")
+local scene = require("@boring/library/scene")
 local color = require("shared.color")
-local buffer = require("shared.wl.buffer")
 local image = require("shared.image")
 local fs = require("shared.fs")
 
@@ -44,19 +43,16 @@ local function default_directory()
     return pictures .. "/Screenshots"
 end
 
--- A canvas as a scene buffer under `tree`, shown at width x height layout
--- pixels at (x, y).
+-- A canvas as an image under `tree`, shown at width x height layout pixels
+-- at (x, y).
 local function show(tree, canvas, x, y, width, height)
-    local buf = buffer.new(canvas.width, canvas.height)
-    ffi.copy(buf.pixels, canvas.data, canvas.width * canvas.height * 4)
-    local node = buffer.attach(tree, buf)
-    node.node:set_position(math.floor(x), math.floor(y))
-    boring.wl.lib.wlr_scene_buffer_set_dest_size(node, math.floor(width), math.floor(height))
+    local node = scene.image(tree, canvas)
+    node:set_position(x, y)
+    node:set_size(width, height)
     return node
 end
 
 function plugin:mount(config, ctx)
-    local lib = boring.wl.lib
     local theme = ui.theme(config.theme)
     local directory = expand(config.directory or default_directory())
     local save_file = config.save ~= false
@@ -102,19 +98,19 @@ function plugin:mount(config, ctx)
         if s.release_keyboard then s.release_keyboard() end
         if s.release_pointer then s.release_pointer() end
         if s.toolbar then s.toolbar:close() end
-        s.tree.node:destroy()
+        s.tree:destroy()
     end
 
     -- The picture: frozen screen, dimmed outside the selection ---------------------
 
     local function redraw(s)
-        if s.layer then s.layer.node:destroy() end
-        s.layer = lib.wlr_scene_tree_create(s.tree)
+        if s.layer then s.layer:destroy() end
+        s.layer = scene.tree(s.tree)
         local box, sel = s.box, s.selection
-        local dim = color.float4({ 0, 0, 0, 0.45 })
+        local dim = { 0, 0, 0, 0.45 }
         local function rect(x, y, w, h, c)
             if w <= 0 or h <= 0 then return end
-            lib.wlr_scene_rect_create(s.layer, w, h, c).node:set_position(math.floor(x), math.floor(y))
+            scene.rect(s.layer, w, h, c):set_position(x, y)
         end
         if not sel then
             rect(box.x, box.y, box.width, box.height, dim)
@@ -126,13 +122,13 @@ function plugin:mount(config, ctx)
         rect(sel.x + sel.width, sel.y, box.x + box.width - sel.x - sel.width, sel.height, dim)
         -- The edited area, on top.
         if s.work then show(s.layer, s.work, sel.x, sel.y, sel.width, sel.height) end
-        local accent = color.float4(color.parse(theme.accent))
+        local accent = theme.accent
         rect(sel.x - 1, sel.y - 1, sel.width + 2, 1, accent)
         rect(sel.x - 1, sel.y + sel.height, sel.width + 2, 1, accent)
         rect(sel.x - 1, sel.y, 1, sel.height, accent)
         rect(sel.x + sel.width, sel.y, 1, sel.height, accent)
         -- The toolbar stays on top.
-        if s.toolbar and s.toolbar.tree then s.toolbar.tree.node:raise_to_top() end
+        if s.toolbar and s.toolbar.tree then s.toolbar.tree:raise_to_top() end
     end
 
     -- Editing --------------------------------------------------------------------
@@ -368,7 +364,7 @@ function plugin:mount(config, ctx)
         local box = o:box()
         local s = { output = o, box = box, canvas = canvas, mode = "pick" }
         s.redraw = function() redraw(s) end -- for scripts changing s.work
-        s.tree = lib.wlr_scene_tree_create(boring.layers.overlay)
+        s.tree = scene.tree(scene.layer("overlay"))
         show(s.tree, canvas, box.x, box.y, box.width, box.height)
         session = s
         redraw(s)
@@ -380,7 +376,7 @@ function plugin:mount(config, ctx)
     local function direct(box)
         local o = boring.output_at(box.x + box.width / 2, box.y + box.height / 2) or boring.outputs()[1]
         if not o then return end
-        local canvas = capture.region(box, { scale = o.wlr.scale })
+        local canvas = capture.region(box, { scale = o:scale() })
         deliver(canvas, save_file, copy)
     end
 

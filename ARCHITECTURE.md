@@ -47,7 +47,11 @@ only ever *called*, never generated or patched at runtime.
 11. **Plugins are independent.** A plugin requires only `boring` and plugin
     libraries (`plugins/library/`), never another plugin. Plugins that need
     to cooperate do it through shared window properties (`w.props`) and
-    events, without knowing each other.
+    events, without knowing each other. Plugins don't touch wlroots or the
+    compositor's internals either (`boring.wl`, `boring.server`, scene
+    cdata): they draw through `library/scene` and the `boring` API.
+    Libraries may go as deep as they need, and so may `xwayland`, which
+    integrates an X server.
 12. **Use what's installed.** Where the system provides an implementation
     (D-Bus, fonts, image codecs), bind it through the FFI instead of
     reimplementing it, and support the common implementations first-class.
@@ -61,9 +65,9 @@ Each layer may only `require` layers below it.
 ```
 plugins/           Layouts, borders, wallpaper, screenshots, XWayland, …
                    (only the `boring` API and plugin libraries)
-plugins/library/   Code shared by plugins but not part of core: window
-                   management (spaces), workspaces, fullscreen, text,
-                   animation, UI widgets
+plugins/library/   Code shared by plugins but not part of core: the scene
+                   graph as Lua objects, window management (spaces),
+                   workspaces, fullscreen, text, animation, UI widgets
 compositor/        The compositor: modules sharing one `server` record
 shared/wl/         Lua helpers over the bindings: listener trampoline, scope,
                    wl_list iteration, metatypes for wlroots structs, buffers
@@ -250,6 +254,14 @@ a smoke test in the VM display.
     disturb, history over `ipc`. Implements `org.freedesktop.Notifications`
     over the installed D-Bus client library (`shared/dbus`, below). Without
     one, or without a session bus, the plugin warns and does nothing.
+15. ~~**Insulate plugins.**~~ Done. `library/scene` wraps the scene graph in
+    Lua objects (trees, rects, images from pixel canvases; position, size,
+    colour, opacity, snapshots, clicks), one object per node. `text` and
+    `ui` hand those out instead of scene cdata. Borders, wallpaper,
+    stacking, animations, screenshots and notifications use it, and
+    `boring.locked()`, `boring.socket()` and `o:scale()` replace their reads
+    of `boring.server` and `o.wlr`. Only libraries and `xwayland` use
+    `boring.wl` and `boring.server`.
 
 ### D-Bus
 

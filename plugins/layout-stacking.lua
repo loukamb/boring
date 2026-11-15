@@ -37,6 +37,7 @@ local color = require("shared.color")
 local spaces = require("@boring/library/spaces")
 local text = require("@boring/library/text")
 local animate = require("@boring/library/animate")
+local scene = require("@boring/library/scene")
 
 local plugin = { name = "layout-stacking" }
 
@@ -54,7 +55,6 @@ local function make_stacking(config)
     local title_color = color.parse(still(theme.title), { 1, 1, 1, 1 })
     local button_bg = theme.button_background or bar_color
     local button_fg = color.parse(still(theme.button_foreground), title_color)
-    local lib = boring.wl.lib
 
     local stacking = {}
 
@@ -101,7 +101,7 @@ local function make_stacking(config)
         if not d then return end
         for _, off in ipairs(d.handlers) do off() end
         for _, b in ipairs(d.bindings) do animate.stop(b) end
-        d.tree.node:destroy()
+        d.tree:destroy()
         w.data.stacking = nil
     end
 
@@ -111,24 +111,23 @@ local function make_stacking(config)
         local g = w:geometry()
         if g.width <= 0 then return end
 
-        local tree = lib.wlr_scene_tree_create(w.tree)
-        tree.node:set_position(g.x, g.y - height)
+        local tree = scene.tree(scene.window(w))
+        tree:set_position(g.x, g.y - height)
         local d = { tree = tree, width = g.width, x = g.x, y = g.y, title = w:title(), handlers = {}, bindings = {} }
         w.data.stacking = d
 
         -- A rect painted with a (possibly animated) colour.
         local function rect(width, h, value)
-            local r = lib.wlr_scene_rect_create(tree, width, h, color.float4({ 0, 0, 0, 0 }))
-            local scratch = color.float4({ 0, 0, 0, 0 })
+            local r = scene.rect(tree, width, h, { 0, 0, 0, 0 })
             d.bindings[#d.bindings + 1] = animate.bind(nil, value, function(c)
-                r:set_color(color.float4_into(color.parse(c, { 0, 0, 0, 1 }), scratch))
+                r:set_color(color.parse(c, { 0, 0, 0, 1 }))
             end)
             return r
         end
 
         local bar = rect(g.width, height, bar_color)
         local last_click = 0
-        d.handlers[#d.handlers + 1] = boring.on_click(bar.node, function(win, button)
+        d.handlers[#d.handlers + 1] = scene.on_click(bar, function(win, button)
             if button ~= BUTTON_LEFT then return end
             local now = boring.now()
             if now - last_click < 300 then
@@ -152,19 +151,19 @@ local function make_stacking(config)
                 local node, _, th = text.draw(tree, d.title, {
                     font = font, color = title_color, max_width = math.max(0, g.width - fixed - 16),
                 })
-                if node then node.node:set_position(x + 8, math.floor((height - th) / 2)) end
+                if node then node:set_position(x + 8, math.floor((height - th) / 2)) end
             elseif c.type == "spacer" then
                 x = x + math.max(0, (g.width - fixed) / math.max(spacers, 1))
             elseif c.type == "button" then
                 local bx = math.floor(x)
                 local button = rect(height, height, button_bg)
-                button.node:set_position(bx, 0)
+                button:set_position(bx, 0)
                 local node, iw, ih = text.draw(tree, ICONS[c.icon] or c.icon or "", { font = font, color = button_fg })
                 if node then
-                    node.node:set_position(math.floor(bx + (height - iw) / 2), math.floor((height - ih) / 2))
+                    node:set_position(math.floor(bx + (height - iw) / 2), math.floor((height - ih) / 2))
                 end
                 local on_click = c.on_click or DEFAULT_CLICK[c.icon]
-                d.handlers[#d.handlers + 1] = boring.on_click(button.node, function(win)
+                d.handlers[#d.handlers + 1] = scene.on_click(button, function(win)
                     if on_click then on_click(win) end
                 end)
                 x = x + height
@@ -176,17 +175,17 @@ local function make_stacking(config)
         if not decorated or not managed(w) then return end
         local d = w.data.stacking
         if w.fullscreen then
-            if d then d.tree.node:set_enabled(false) end
+            if d then d.tree:set_enabled(false) end
             return
         end
         local g = w:geometry()
         if not d or d.width ~= g.width or d.title ~= w:title() then
             build_decorations(w)
         else
-            d.tree.node:set_enabled(true)
+            d.tree:set_enabled(true)
             if d.x ~= g.x or d.y ~= g.y then
                 d.x, d.y = g.x, g.y
-                d.tree.node:set_position(g.x, g.y - height)
+                d.tree:set_position(g.x, g.y - height)
             end
         end
     end
